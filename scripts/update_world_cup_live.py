@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.request import urlopen
@@ -42,15 +43,31 @@ def parse_args() -> argparse.Namespace:
 
 
 def normalize_team_name(value: str) -> str:
-    normalized = value.lower().replace("&", "and")
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    normalized = normalized.lower().replace("&", "and")
     normalized = normalized.replace("-", " ")
     normalized = re.sub(r"[^a-z0-9 ]+", "", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     aliases = {
         "bosnia herzegovina": "bosnia and herzegovina",
+        "turkiye": "turkey",
         "usa": "united states",
     }
     return aliases.get(normalized, normalized)
+
+
+def find_fixture(
+    fixtures: dict[tuple[str, str, str], tuple[str, str, str]],
+    match_date: date,
+    home_team: str,
+    away_team: str,
+) -> tuple[str, str, str] | None:
+    for date_offset in (0, -1, 1):
+        fixture_date = (match_date + timedelta(days=date_offset)).isoformat()
+        fixture = fixtures.get((fixture_date, home_team, away_team))
+        if fixture:
+            return fixture
+    return None
 
 
 def daterange(start: date, end: date) -> list[date]:
@@ -97,12 +114,9 @@ def fetch_completed_results(fixtures: dict[tuple[str, str, str], tuple[str, str,
             if not home or not away:
                 continue
 
-            key = (
-                match_date.isoformat(),
-                normalize_team_name(home["team"]["displayName"]),
-                normalize_team_name(away["team"]["displayName"]),
-            )
-            fixture = fixtures.get(key)
+            home_team = normalize_team_name(home["team"]["displayName"])
+            away_team = normalize_team_name(away["team"]["displayName"])
+            fixture = find_fixture(fixtures, match_date, home_team, away_team)
             if not fixture:
                 print(
                     "Skipping ESPN result not found in raw fixtures: "
@@ -138,7 +152,7 @@ def write_overrides(rows: dict[tuple[str, str, str], dict[str, str]]) -> None:
     OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
     ordered_rows = sorted(rows.values(), key=lambda row: (row["date"], row["home_team"], row["away_team"]))
     with OVERRIDES_PATH.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(ordered_rows)
 

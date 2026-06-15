@@ -57,13 +57,15 @@ data/processed/world_cup_2026_top_scorer_predictions.csv
 Validacion cronologica sobre 6.060 partidos:
 
 - MAE goles local: 1.025
-- MAE goles visitante: 0.826
-- Puntos promedio por partido, estrategia calibrada: 4.043
-- Puntos promedio por partido, marcador mas probable: 3.800
+- MAE goles visitante: 0.825
+- Puntos promedio por partido, estrategia calibrada: 4.042
+- Puntos promedio por partido, marcador mas probable: 3.803
 
 ## Simulacion Final
 
-La simulacion completa del torneo usa 100.000 corridas.
+La simulacion de grupos usa 25.000 corridas con seed fija.
+
+La simulacion completa del torneo usa 500.000 corridas con seed fija.
 
 Benchmark posterior a optimizacion:
 
@@ -71,11 +73,11 @@ Benchmark posterior a optimizacion:
 - 5.000 simulaciones: aproximadamente 3.08 segundos.
 - 100.000 simulaciones: aproximadamente 1 minuto en esta maquina.
 
-Resultados actuales con 100.000 simulaciones:
+Resultados actuales con 500.000 simulaciones:
 
-- Campeon recomendado: Spain, 22.958%.
-- Subcampeon recomendado: Argentina, 8.906% de probabilidad marginal de subcampeon.
-- Tercer puesto recomendado: England, 6.947% de probabilidad marginal de tercer puesto.
+- Campeon recomendado: Spain, 21.816%.
+- Subcampeon recomendado: Argentina, 8.145% de probabilidad marginal de subcampeon.
+- Tercer puesto recomendado: Brazil, 8.336% de probabilidad marginal de tercer puesto.
 - Goleador recomendado desde candidatos editables: Harry Kane.
 
 ## Estrategia De Picks
@@ -85,8 +87,9 @@ La estrategia final actual no elige simplemente el marcador mas probable.
 Usa:
 
 - Maximo de goles totales candidatos: 2
-- Multiplicador de empates: 1.23
+- Multiplicador de empates: 1.21
 - Optimizacion por puntos esperados segun reglas del juego
+- Alternativa de empate visible cuando el empate es competitivo, sin forzarla como pick principal
 
 Esto favorece marcadores conservadores como `1-0`, `0-1`, `2-0`, `0-2` y algunos empates cuando el valor historico lo justifica.
 
@@ -115,5 +118,5 @@ Comando unico:
 - Todavia no ajusta por XI confirmado.
 - Los fixtures futuros dependen de que la fuente publica los tenga actualizados.
 - El simulador de eliminatorias usa un bracket aproximado por siembra competitiva hasta confirmar el cuadro oficial exacto.
-- La simulacion completa usa 100.000 corridas por defecto en `scripts/simulate_world_cup_tournament.py`.
+- La simulacion completa usa 500.000 corridas por defecto en `scripts/simulate_world_cup_tournament.py`.
 - El modulo de goleador depende de `data/raw/top_scorer_candidates.csv`; debe actualizarse cuando salgan planteles, roles y pateadores de penales confirmados.

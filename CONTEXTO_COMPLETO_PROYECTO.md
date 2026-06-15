@@ -201,20 +201,22 @@ Simula:
 - Subcampeon.
 - Tercer puesto.
 
-La simulacion completa usa 100.000 corridas por defecto.
+La simulacion de grupos usa 25.000 corridas por defecto.
 
-El simulador fue optimizado para correr 100.000 simulaciones en aproximadamente 1 minuto en esta maquina.
+La simulacion completa usa 500.000 corridas por defecto.
+
+El simulador de torneo fue optimizado para correr muchas simulaciones con seed fija y resultados reproducibles.
 
 Limitacion: el bracket de eliminatorias usa una aproximacion por siembra competitiva hasta confirmar el cuadro oficial exacto.
 
 ## Resultados Actuales Principales
 
-Con 100.000 simulaciones:
+Con 500.000 simulaciones:
 
 ```text
 Campeon recomendado: Spain
 Subcampeon recomendado: Argentina
-Tercer puesto recomendado: England
+Tercer puesto recomendado: Brazil
 ```
 
 Principales probabilidades de campeon:
@@ -307,7 +309,7 @@ Este comando ejecuta:
 3. Backtest de picks.
 4. Predicciones de fixtures futuros.
 5. Simulacion de grupos.
-6. Simulacion completa del torneo con 100.000 corridas.
+6. Simulacion completa del torneo con 500.000 corridas.
 7. Estimacion de goleador.
 8. Exportacion de JSON para dashboard.
 

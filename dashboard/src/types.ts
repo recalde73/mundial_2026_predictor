@@ -10,6 +10,9 @@ export type Prediction = {
   away_win_probability: number;
   recommended_scoreline: string;
   recommended_expected_points: number;
+  draw_alternative_scoreline: string;
+  draw_alternative_expected_points: number;
+  draw_alternative_is_competitive: boolean;
   home_elo: number;
   away_elo: number;
   elo_diff: number;
@@ -50,7 +53,9 @@ export type TopScorer = {
 export type Metadata = {
   generated_at: string;
   source: string;
+  group_simulations: number;
   tournament_simulations: number;
+  simulation_seed: number;
 };
 
 export type DashboardData = {

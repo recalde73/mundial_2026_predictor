@@ -1,5 +1,7 @@
 {
-  "generated_at":"2026-06-14T15:01:50.527557+00:00",
+  "generated_at":"2026-06-15T03:45:45.143581+00:00",
   "source":"data\/processed CSV outputs",
-  "tournament_simulations":100000
+  "group_simulations":25000,
+  "tournament_simulations":500000,
+  "simulation_seed":2026
 }

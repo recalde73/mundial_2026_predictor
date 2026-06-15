@@ -10,7 +10,12 @@ from worldcup_predictor.datasets import MatchRecord
 from worldcup_predictor.elo import EloConfig, expected_result, update_ratings
 from worldcup_predictor.modeling import BaselineGoalModel, fit_goal_model, predict_expected_goals
 from worldcup_predictor.poisson import scoreline_probabilities
-from worldcup_predictor.recommender import rank_predictions
+from worldcup_predictor.recommender import adjust_draw_probabilities, rank_predictions
+from worldcup_predictor.scoring import candidate_scorelines, expected_points
+
+
+COMPETITIVE_DRAW_PROBABILITY_THRESHOLD = 0.26
+COMPETITIVE_DRAW_RESULT_MARGIN = 0.03
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,22 @@ def _average(records: tuple[MatchRecord, ...], attribute: str, default: float = 
     if not records:
         return default
     return sum(getattr(record, attribute) for record in records) / len(records)
+
+
+def _best_draw_alternative(
+    probabilities: dict[tuple[int, int], float],
+    max_total_candidate_goals: int = 2,
+) -> tuple[tuple[int, int], float]:
+    adjusted_probabilities = adjust_draw_probabilities(probabilities)
+    draw_candidates = tuple(
+        scoreline
+        for scoreline in candidate_scorelines()
+        if scoreline[0] == scoreline[1] and sum(scoreline) <= max_total_candidate_goals
+    )
+    return max(
+        ((candidate, expected_points(candidate, adjusted_probabilities)) for candidate in draw_candidates),
+        key=lambda item: item[1],
+    )
 
 
 def load_raw_results_with_fixtures(path: str | Path) -> pd.DataFrame:
@@ -198,6 +219,11 @@ def predict_fixture_picks(
             for (home_goals, away_goals), probability in probabilities.items()
             if home_goals < away_goals
         )
+        draw_pick, draw_expected_points = _best_draw_alternative(probabilities)
+        draw_is_competitive = (
+            draw_probability >= COMPETITIVE_DRAW_PROBABILITY_THRESHOLD
+            and abs(home_win_probability - away_win_probability) <= COMPETITIVE_DRAW_RESULT_MARGIN
+        )
 
         rows.append(
             {
@@ -214,6 +240,11 @@ def predict_fixture_picks(
                 "recommended_away_score": pick[1],
                 "recommended_scoreline": f"{pick[0]}-{pick[1]}",
                 "recommended_expected_points": float(pick_expected_points),
+                "draw_alternative_home_score": draw_pick[0],
+                "draw_alternative_away_score": draw_pick[1],
+                "draw_alternative_scoreline": f"{draw_pick[0]}-{draw_pick[1]}",
+                "draw_alternative_expected_points": float(draw_expected_points),
+                "draw_alternative_is_competitive": draw_is_competitive,
                 "home_elo": float(match.home_elo),
                 "away_elo": float(match.away_elo),
                 "elo_diff": float(match.elo_diff),

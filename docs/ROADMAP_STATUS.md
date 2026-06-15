@@ -18,7 +18,7 @@
 - Crear recomendacion de podio.
 - Crear estimador de goleador desde candidatos editables.
 - Crear comando unico de producto final.
-- Optimizar simulador de torneo completo y correr 100.000 simulaciones.
+- Optimizar simulador de torneo completo y correr 500.000 simulaciones.
 
 ## Resuelto Con Aproximacion
 

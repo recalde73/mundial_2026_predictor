@@ -6,6 +6,8 @@ from worldcup_predictor.simulation import simulate_tournament
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+TOURNAMENT_SIMULATIONS = 500000
+SIMULATION_SEED = 2026
 
 
 def main() -> None:
@@ -13,7 +15,7 @@ def main() -> None:
     output_path = PROJECT_ROOT / "data" / "processed" / "world_cup_2026_tournament_simulation.csv"
 
     predictions = pd.read_csv(predictions_path, parse_dates=["date"])
-    simulation = simulate_tournament(predictions, simulations=100000)
+    simulation = simulate_tournament(predictions, simulations=TOURNAMENT_SIMULATIONS, seed=SIMULATION_SEED)
     simulation.to_csv(output_path, index=False)
 
     print(f"Teams simulated: {len(simulation)}")

@@ -117,6 +117,10 @@ h2 {
   font-size: 2rem;
 }
 
+.heroCard small {
+  display: block;
+}
+
 .controls {
   display: flex;
   gap: 18px;
@@ -271,6 +275,17 @@ tr:hover td {
   background: rgba(94, 234, 212, 0.16);
   color: #67f7e4;
   font-weight: 800;
+}
+
+.pickCell {
+  display: grid;
+  gap: 6px;
+}
+
+.pickCell small {
+  color: #fbbf24;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .probability {

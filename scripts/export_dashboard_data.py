@@ -9,6 +9,9 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 DASHBOARD_DATA_DIR = PROJECT_ROOT / "dashboard" / "public" / "data"
+GROUP_SIMULATIONS = 25000
+TOURNAMENT_SIMULATIONS = 500000
+SIMULATION_SEED = 2026
 
 
 DATASETS = {
@@ -35,7 +38,9 @@ def export_dashboard_data() -> None:
     metadata = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": "data/processed CSV outputs",
-        "tournament_simulations": 100000,
+        "group_simulations": GROUP_SIMULATIONS,
+        "tournament_simulations": TOURNAMENT_SIMULATIONS,
+        "simulation_seed": SIMULATION_SEED,
     }
     pd.Series(metadata).to_json(
         DASHBOARD_DATA_DIR / "metadata.json",

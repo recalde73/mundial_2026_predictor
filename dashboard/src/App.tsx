@@ -91,12 +91,13 @@ function App() {
           <p className="eyebrow">Mundial 2026 Predictor</p>
           <h1>Motor de picks, simulaciones y podio</h1>
           <p className="heroText">
-            Dashboard generado desde el modelo con datos reales, Elo historico, 100.000 simulaciones y optimizacion por puntos del juego.
+            Dashboard generado desde el modelo con datos reales, Elo historico, simulaciones reproducibles y optimizacion por puntos del juego.
           </p>
         </div>
         <div className="heroCard">
           <span>Simulaciones torneo</span>
           <strong>{data.metadata.tournament_simulations.toLocaleString('es-AR')}</strong>
+          <small>Grupos: {data.metadata.group_simulations.toLocaleString('es-AR')} · Seed {data.metadata.simulation_seed}</small>
           <small>Actualizado: {new Date(data.metadata.generated_at).toLocaleString('es-AR')}</small>
         </div>
       </header>
@@ -227,7 +228,14 @@ function MatchesTable({ rows }: { rows: Prediction[] }) {
               <td><strong>{row.home_team}</strong> vs <strong>{row.away_team}</strong></td>
               <td>{num(row.home_expected_goals)} - {num(row.away_expected_goals)}</td>
               <td>{pct(row.home_win_probability)} / {pct(row.draw_probability)} / {pct(row.away_win_probability)}</td>
-              <td><span className="pill">{row.recommended_scoreline}</span></td>
+              <td>
+                <div className="pickCell">
+                  <span className="pill">{row.recommended_scoreline}</span>
+                  {row.draw_alternative_is_competitive && (
+                    <small>Empate: {row.draw_alternative_scoreline} · {num(row.draw_alternative_expected_points)} pts</small>
+                  )}
+                </div>
+              </td>
               <td>{num(row.recommended_expected_points)}</td>
             </tr>
           ))}

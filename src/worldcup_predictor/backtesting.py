@@ -11,7 +11,7 @@ from worldcup_predictor.modeling import (
     train_baseline_goal_model,
 )
 from worldcup_predictor.poisson import most_likely_scorelines, scoreline_probabilities
-from worldcup_predictor.recommender import rank_predictions
+from worldcup_predictor.recommender import DEFAULT_DRAW_PROBABILITY_MULTIPLIER, rank_predictions
 from worldcup_predictor.scoring import (
     DRAW,
     EXACT_SCORE,
@@ -48,7 +48,7 @@ def evaluate_pick_strategies(
     predictions: pd.DataFrame,
     max_goals: int = 6,
     max_total_candidate_goals: int | None = 2,
-    draw_probability_multiplier: float = 1.23,
+    draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
 ) -> pd.DataFrame:
     """Evaluate optimized and most-likely scoreline picks against actual results."""
     rows: list[dict[str, object]] = []

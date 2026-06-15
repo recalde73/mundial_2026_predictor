@@ -16,7 +16,7 @@ from worldcup_predictor.scoring import (
 
 
 DEFAULT_MAX_TOTAL_CANDIDATE_GOALS = 2
-DEFAULT_DRAW_PROBABILITY_MULTIPLIER = 1.23
+DEFAULT_DRAW_PROBABILITY_MULTIPLIER = 1.21
 
 
 @dataclass(frozen=True)

@@ -131,6 +131,8 @@ Simular fase de grupos:
 PYTHONPATH=src .venv/bin/python scripts/simulate_world_cup_groups.py
 ```
 
+Este script corre `25.000` simulaciones por defecto con seed fija.
+
 Salida:
 
 ```text
@@ -143,7 +145,7 @@ Simular torneo completo aproximado:
 PYTHONPATH=src .venv/bin/python scripts/simulate_world_cup_tournament.py
 ```
 
-Este script corre `100.000` simulaciones por defecto.
+Este script corre `500.000` simulaciones por defecto con seed fija.
 
 Salida:
 
