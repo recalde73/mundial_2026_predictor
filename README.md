@@ -169,6 +169,29 @@ Ejecutar producto final completo:
 .venv/bin/python scripts/run_full_pipeline.py
 ```
 
+Actualizar resultados reales del Mundial, recalcular todo y desplegar el dashboard local:
+
+```bash
+bash scripts/actualizar_datos_mundial.sh
+```
+
+Esto hace automaticamente:
+
+- Descarga `data/raw/results.csv`, `goalscorers.csv` y `shootouts.csv`.
+- Consulta partidos finalizados del Mundial en ESPN desde `2026-06-11` hasta hoy.
+- Actualiza `data/manual/match_results_overrides.csv`.
+- Ejecuta el pipeline completo.
+- Compila el dashboard.
+- Reinicia `vite preview` en `http://localhost:4173`.
+
+Opciones utiles:
+
+```bash
+bash scripts/actualizar_datos_mundial.sh --no-deploy
+bash scripts/actualizar_datos_mundial.sh --from-date 2026-06-12 --to-date 2026-06-12
+bash scripts/actualizar_datos_mundial.sh --port 5173
+```
+
 Exportar datos para dashboard:
 
 ```bash

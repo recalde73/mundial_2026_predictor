@@ -10,6 +10,8 @@ env/
 *.egg-info/
 dashboard/node_modules/
 dashboard/dist/
+dashboard/.vite-preview.pid
+dashboard/vite-preview.log
 data/raw/*
 data/processed/*
 !data/raw/.gitkeep
