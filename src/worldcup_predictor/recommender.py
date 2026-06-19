@@ -15,8 +15,9 @@ from worldcup_predictor.scoring import (
 )
 
 
-DEFAULT_MAX_TOTAL_CANDIDATE_GOALS = 2
-DEFAULT_DRAW_PROBABILITY_MULTIPLIER = 1.21
+DEFAULT_MAX_TOTAL_CANDIDATE_GOALS = 4
+DEFAULT_DRAW_PROBABILITY_MULTIPLIER = 1.0
+DEFAULT_GOAL_INFLATION = 1.40
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,18 @@ def rank_predictions(
     return sorted(ranked, key=lambda item: item[1], reverse=True)[:limit]
 
 
+def apply_goal_inflation(
+    home_expected_goals: float,
+    away_expected_goals: float,
+    goal_inflation: float = DEFAULT_GOAL_INFLATION,
+) -> tuple[float, float]:
+    """Return expected goals adjusted for the current pick strategy."""
+    if goal_inflation <= 0:
+        raise ValueError("goal_inflation must be greater than 0")
+
+    return home_expected_goals * goal_inflation, away_expected_goals * goal_inflation
+
+
 def adjust_draw_probabilities(
     probabilities: ScorelineProbabilities,
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
@@ -96,12 +109,18 @@ def recommend_pick(
     max_goals: int = 6,
     max_total_candidate_goals: int | None = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
+    goal_inflation: float = DEFAULT_GOAL_INFLATION,
     alternatives_limit: int = 10,
 ) -> PickRecommendation:
     """Recommend a scoreline by maximizing expected points under game rules."""
+    strategy_home_expected_goals, strategy_away_expected_goals = apply_goal_inflation(
+        home_expected_goals,
+        away_expected_goals,
+        goal_inflation=goal_inflation,
+    )
     probabilities = scoreline_probabilities(
-        home_expected_goals=home_expected_goals,
-        away_expected_goals=away_expected_goals,
+        home_expected_goals=strategy_home_expected_goals,
+        away_expected_goals=strategy_away_expected_goals,
         max_goals=max_goals,
     )
     alternatives = rank_predictions(

@@ -5,11 +5,13 @@ import type {
   GroupSimulation,
   Metadata,
   Prediction,
+  QualificationBacktestPick,
+  QualificationBacktestStrategy,
   TopScorer,
   TournamentSimulation,
 } from './types';
 
-type Tab = 'summary' | 'matches' | 'groups' | 'tournament' | 'scorers';
+type Tab = 'summary' | 'matches' | 'groups' | 'tournament' | 'scorers' | 'backtest';
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'summary', label: 'Resumen' },
@@ -17,6 +19,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'groups', label: 'Grupos' },
   { id: 'tournament', label: 'Torneo' },
   { id: 'scorers', label: 'Goleador' },
+  { id: 'backtest', label: 'Backtest' },
 ];
 
 const json = async <T,>(path: string): Promise<T> => {
@@ -43,10 +46,12 @@ function App() {
       json<GroupSimulation[]>('/data/groups.json'),
       json<TournamentSimulation[]>('/data/tournament.json'),
       json<TopScorer[]>('/data/top_scorers.json'),
+      json<QualificationBacktestStrategy[]>('/data/qualification_backtest_strategies.json'),
+      json<QualificationBacktestPick[]>('/data/qualification_backtest_picks.json'),
       json<Metadata>('/data/metadata.json'),
     ])
-      .then(([predictions, groups, tournament, topScorers, metadata]) => {
-        setData({ predictions, groups, tournament, topScorers, metadata });
+      .then(([predictions, groups, tournament, topScorers, qualificationBacktestStrategies, qualificationBacktestPicks, metadata]) => {
+        setData({ predictions, groups, tournament, topScorers, qualificationBacktestStrategies, qualificationBacktestPicks, metadata });
       })
       .catch((caught: unknown) => {
         setError(caught instanceof Error ? caught.message : 'Error desconocido');
@@ -83,6 +88,9 @@ function App() {
   const filteredGroups = data.groups.filter((row) => teamMatches(row.team) && groupMatches(row.group));
   const filteredTournament = data.tournament.filter((row) => teamMatches(row.team) && groupMatches(row.group));
   const filteredScorers = data.topScorers.filter((row) => teamMatches(row.team) || teamMatches(row.player));
+  const filteredBacktestPicks = data.qualificationBacktestPicks.filter(
+    (row) => teamMatches(row.home_team) || teamMatches(row.away_team),
+  );
 
   return (
     <main className="shell">
@@ -136,6 +144,7 @@ function App() {
       {tab === 'groups' && <GroupsTable rows={filteredGroups} />}
       {tab === 'tournament' && <TournamentTable rows={filteredTournament} />}
       {tab === 'scorers' && <ScorersTable rows={filteredScorers} />}
+      {tab === 'backtest' && <BacktestPanel strategies={data.qualificationBacktestStrategies} picks={filteredBacktestPicks} />}
     </main>
   );
 }
@@ -154,6 +163,8 @@ function Summary({ data }: { data: DashboardData }) {
   const runnerUp = distinctBest(data.tournament, [champion.team], 'runner_up_probability');
   const third = distinctBest(data.tournament, [champion.team, runnerUp.team], 'third_place_probability');
   const scorer = data.topScorers[0];
+  const backtest = data.qualificationBacktestStrategies.find((row) => row.selected_strategy) ?? data.qualificationBacktestStrategies[0];
+  const strategy = data.predictions[0];
   const topChampion = data.tournament.slice(0, 8);
   const topMatches = [...data.predictions]
     .sort((a, b) => b.recommended_expected_points - a.recommended_expected_points)
@@ -177,6 +188,19 @@ function Summary({ data }: { data: DashboardData }) {
         <p>{num(scorer.expected_goals)} goles esperados estimados</p>
       </article>
 
+      <article className="panel strategyCard">
+        <h2>Estrategia diaria calibrada</h2>
+        <div className="metricGrid">
+          <Metric label="Pts/partido" value={num(backtest.average_points)} />
+          <Metric label="Exactos" value={pct(backtest.exact_score_rate)} />
+          <Metric label="Acierto resultado" value={pct(backtest.result_accuracy_rate)} />
+          <Metric label="Fallos" value={pct(backtest.miss_rate)} />
+        </div>
+        <p>
+          2018 cycle {'->'} 2021 qualifiers. Picks 2026: xG {num(strategy.goal_inflation)} · max goles {strategy.max_total_candidate_goals} · empates x{num(strategy.draw_probability_multiplier)}.
+        </p>
+      </article>
+
       <article className="panel">
         <h2>Candidatos al titulo</h2>
         <BarList rows={topChampion.map((row) => ({ label: row.team, value: row.champion_probability }))} />
@@ -194,6 +218,15 @@ function Summary({ data }: { data: DashboardData }) {
         </div>
       </article>
     </section>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -226,7 +259,12 @@ function MatchesTable({ rows }: { rows: Prediction[] }) {
             <tr key={`${row.date}-${row.home_team}-${row.away_team}`}>
               <td>{row.date}</td>
               <td><strong>{row.home_team}</strong> vs <strong>{row.away_team}</strong></td>
-              <td>{num(row.home_expected_goals)} - {num(row.away_expected_goals)}</td>
+              <td>
+                <div className="pickCell">
+                  <span>{num(row.home_expected_goals)} - {num(row.away_expected_goals)}</span>
+                  <small>Modelo: {num(row.model_home_expected_goals)} - {num(row.model_away_expected_goals)}</small>
+                </div>
+              </td>
               <td>{pct(row.home_win_probability)} / {pct(row.draw_probability)} / {pct(row.away_win_probability)}</td>
               <td>
                 <div className="pickCell">
@@ -242,6 +280,87 @@ function MatchesTable({ rows }: { rows: Prediction[] }) {
         </tbody>
       </table>
     </TablePanel>
+  );
+}
+
+function BacktestPanel({ strategies, picks }: { strategies: QualificationBacktestStrategy[]; picks: QualificationBacktestPick[] }) {
+  const best = strategies.find((row) => row.selected_strategy) ?? strategies[0];
+  const topStrategies = strategies.slice(0, 10);
+  const recentPicks = [...picks].slice(0, 80);
+
+  return (
+    <section className="grid">
+      <article className="panel span2 strategyCard">
+        <h2>Validacion 2018 {'->'} Eliminatorias 2021</h2>
+        <div className="metricGrid wide">
+          <Metric label="Partidos train" value={best.training_matches.toLocaleString('es-AR')} />
+          <Metric label="Partidos validacion" value={best.validation_matches.toLocaleString('es-AR')} />
+          <Metric label="Pts/partido" value={num(best.average_points)} />
+          <Metric label="Exactos" value={pct(best.exact_score_rate)} />
+          <Metric label="Acierto resultado" value={pct(best.result_accuracy_rate)} />
+          <Metric label="MAE goles" value={`${num(best.home_mae)} / ${num(best.away_mae)}`} />
+        </div>
+        <p>
+          Mejor estrategia para sumar puntos diarios: xG {num(best.goal_inflation)} · max goles {best.max_total_candidate_goals ?? 'sin tope'} · empates x{num(best.draw_probability_multiplier)}.
+        </p>
+      </article>
+
+      <TablePanel title="Top estrategias evaluadas" count={topStrategies.length}>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>xG</th>
+              <th>Max goles</th>
+              <th>Empates</th>
+              <th>Pts</th>
+              <th>Exactos</th>
+              <th>Acierto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {topStrategies.map((row) => (
+              <tr key={`${row.rank}-${row.goal_inflation}-${row.max_total_candidate_goals}-${row.draw_probability_multiplier}`}>
+                <td>{row.rank}</td>
+                <td>{num(row.goal_inflation)}</td>
+                <td>{row.max_total_candidate_goals ?? 'sin tope'}</td>
+                <td>{num(row.draw_probability_multiplier)}</td>
+                <td>{num(row.average_points)}</td>
+                <td>{pct(row.exact_score_rate)}</td>
+                <td>{pct(row.result_accuracy_rate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TablePanel>
+
+      <TablePanel title="Picks de validacion 2021" count={recentPicks.length}>
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Partido</th>
+              <th>Real</th>
+              <th>Pick</th>
+              <th>Pts</th>
+              <th>Categoria</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recentPicks.map((row) => (
+              <tr key={`${row.date}-${row.home_team}-${row.away_team}`}>
+                <td>{row.date}</td>
+                <td><strong>{row.home_team}</strong> vs <strong>{row.away_team}</strong></td>
+                <td>{row.home_score}-{row.away_score}</td>
+                <td><span className="pill">{row.optimized_home_score}-{row.optimized_away_score}</span></td>
+                <td>{row.optimized_points}</td>
+                <td>{row.optimized_category}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TablePanel>
+    </section>
   );
 }
 

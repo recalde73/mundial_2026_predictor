@@ -1,4 +1,11 @@
-from worldcup_predictor.recommender import adjust_draw_probabilities, rank_predictions, recommend_pick
+import pytest
+
+from worldcup_predictor.recommender import (
+    apply_goal_inflation,
+    adjust_draw_probabilities,
+    rank_predictions,
+    recommend_pick,
+)
 
 
 def test_rank_predictions_prefers_draw_when_draw_probability_is_high() -> None:
@@ -45,6 +52,18 @@ def test_adjust_draw_probabilities_boosts_draw_scorelines() -> None:
 
     assert adjusted[(1, 1)] > probabilities[(1, 1)]
     assert round(sum(adjusted.values()), 10) == 1.0
+
+
+def test_apply_goal_inflation_scales_both_teams() -> None:
+    home_goals, away_goals = apply_goal_inflation(2.0, 1.0, goal_inflation=1.05)
+
+    assert home_goals == pytest.approx(2.1)
+    assert away_goals == pytest.approx(1.05)
+
+
+def test_apply_goal_inflation_rejects_non_positive_multiplier() -> None:
+    with pytest.raises(ValueError):
+        apply_goal_inflation(2.0, 1.0, goal_inflation=0)
 
 
 def test_recommend_pick_returns_expected_fields() -> None:

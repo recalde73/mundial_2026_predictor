@@ -13,11 +13,12 @@ def print_summary(title: str, summary: PickSummary) -> None:
     print(f"Matches: {summary.matches}")
     print(f"Total points: {summary.total_points}")
     print(f"Average points: {summary.average_points:.3f}")
-    print(f"Exact scores: {summary.exact_scores}")
+    print(f"Exact scores: {summary.exact_scores} ({summary.exact_score_rate:.1%})")
+    print(f"Result accuracy: {summary.result_accuracy_rate:.1%}")
     print(f"Winner + diff: {summary.winner_and_diff}")
     print(f"Draws: {summary.draws}")
     print(f"Winners: {summary.winners}")
-    print(f"Misses: {summary.misses}")
+    print(f"Misses: {summary.misses} ({summary.miss_rate:.1%})")
 
 
 def main() -> None:
@@ -29,7 +30,7 @@ def main() -> None:
     print(f"Home goals MAE: {result.model.home_mae:.3f}")
     print(f"Away goals MAE: {result.model.away_mae:.3f}")
     print("")
-    print_summary("Optimized by game rules", result.optimized_summary)
+    print_summary("Optimized daily-points strategy", result.optimized_summary)
     print("")
     print_summary("Most likely scoreline", result.most_likely_summary)
 

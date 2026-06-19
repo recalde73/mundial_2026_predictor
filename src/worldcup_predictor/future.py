@@ -10,7 +10,14 @@ from worldcup_predictor.datasets import MatchRecord
 from worldcup_predictor.elo import EloConfig, expected_result, update_ratings
 from worldcup_predictor.modeling import BaselineGoalModel, fit_goal_model, predict_expected_goals
 from worldcup_predictor.poisson import scoreline_probabilities
-from worldcup_predictor.recommender import adjust_draw_probabilities, rank_predictions
+from worldcup_predictor.recommender import (
+    DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
+    DEFAULT_GOAL_INFLATION,
+    DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
+    adjust_draw_probabilities,
+    apply_goal_inflation,
+    rank_predictions,
+)
 from worldcup_predictor.scoring import candidate_scorelines, expected_points
 
 
@@ -41,9 +48,13 @@ def _average(records: tuple[MatchRecord, ...], attribute: str, default: float = 
 
 def _best_draw_alternative(
     probabilities: dict[tuple[int, int], float],
-    max_total_candidate_goals: int = 2,
+    max_total_candidate_goals: int = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
+    draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
 ) -> tuple[tuple[int, int], float]:
-    adjusted_probabilities = adjust_draw_probabilities(probabilities)
+    adjusted_probabilities = adjust_draw_probabilities(
+        probabilities,
+        draw_probability_multiplier=draw_probability_multiplier,
+    )
     draw_candidates = tuple(
         scoreline
         for scoreline in candidate_scorelines()
@@ -192,18 +203,31 @@ def build_fixture_features(
 def predict_fixture_picks(
     model: BaselineGoalModel,
     fixture_features: pd.DataFrame,
+    max_total_candidate_goals: int | None = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
+    draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
+    goal_inflation: float = DEFAULT_GOAL_INFLATION,
 ) -> pd.DataFrame:
     """Predict expected goals and recommended picks for future fixtures."""
     predictions = predict_expected_goals(model, fixture_features)
     rows: list[dict[str, object]] = []
 
     for match in predictions.itertuples(index=False):
+        strategy_home_expected_goals, strategy_away_expected_goals = apply_goal_inflation(
+            float(match.home_expected_goals),
+            float(match.away_expected_goals),
+            goal_inflation=goal_inflation,
+        )
         probabilities = scoreline_probabilities(
-            home_expected_goals=float(match.home_expected_goals),
-            away_expected_goals=float(match.away_expected_goals),
+            home_expected_goals=strategy_home_expected_goals,
+            away_expected_goals=strategy_away_expected_goals,
             max_goals=6,
         )
-        pick, pick_expected_points = rank_predictions(probabilities, limit=1)[0]
+        pick, pick_expected_points = rank_predictions(
+            probabilities,
+            max_total_candidate_goals=max_total_candidate_goals,
+            draw_probability_multiplier=draw_probability_multiplier,
+            limit=1,
+        )[0]
         home_win_probability = sum(
             probability
             for (home_goals, away_goals), probability in probabilities.items()
@@ -219,7 +243,10 @@ def predict_fixture_picks(
             for (home_goals, away_goals), probability in probabilities.items()
             if home_goals < away_goals
         )
-        draw_pick, draw_expected_points = _best_draw_alternative(probabilities)
+        draw_pick, draw_expected_points = _best_draw_alternative(
+            probabilities,
+            draw_probability_multiplier=draw_probability_multiplier,
+        )
         draw_is_competitive = (
             draw_probability >= COMPETITIVE_DRAW_PROBABILITY_THRESHOLD
             and abs(home_win_probability - away_win_probability) <= COMPETITIVE_DRAW_RESULT_MARGIN
@@ -231,8 +258,13 @@ def predict_fixture_picks(
                 "tournament": match.tournament,
                 "home_team": match.home_team,
                 "away_team": match.away_team,
-                "home_expected_goals": float(match.home_expected_goals),
-                "away_expected_goals": float(match.away_expected_goals),
+                "model_home_expected_goals": float(match.home_expected_goals),
+                "model_away_expected_goals": float(match.away_expected_goals),
+                "home_expected_goals": strategy_home_expected_goals,
+                "away_expected_goals": strategy_away_expected_goals,
+                "goal_inflation": goal_inflation,
+                "max_total_candidate_goals": max_total_candidate_goals,
+                "draw_probability_multiplier": draw_probability_multiplier,
                 "home_win_probability": home_win_probability,
                 "draw_probability": draw_probability,
                 "away_win_probability": away_win_probability,
@@ -258,9 +290,18 @@ def train_final_model_and_predict_fixtures(
     processed_matches: pd.DataFrame,
     completed_results: pd.DataFrame,
     fixtures: pd.DataFrame,
+    max_total_candidate_goals: int | None = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
+    draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
+    goal_inflation: float = DEFAULT_GOAL_INFLATION,
 ) -> pd.DataFrame:
     """Fit on all processed history and predict future fixture picks."""
     model = fit_goal_model(processed_matches)
     team_states = build_team_states(completed_results)
     fixture_features = build_fixture_features(fixtures, team_states)
-    return predict_fixture_picks(model, fixture_features)
+    return predict_fixture_picks(
+        model,
+        fixture_features,
+        max_total_candidate_goals=max_total_candidate_goals,
+        draw_probability_multiplier=draw_probability_multiplier,
+        goal_inflation=goal_inflation,
+    )

@@ -19,6 +19,8 @@ DATASETS = {
     "groups": PROCESSED_DIR / "world_cup_2026_group_simulation.csv",
     "tournament": PROCESSED_DIR / "world_cup_2026_tournament_simulation.csv",
     "top_scorers": PROCESSED_DIR / "world_cup_2026_top_scorer_predictions.csv",
+    "qualification_backtest_strategies": PROCESSED_DIR / "backtest_2021_qualification_from_2018_cycle_strategies.csv",
+    "qualification_backtest_picks": PROCESSED_DIR / "backtest_2021_qualification_from_2018_cycle_picks.csv",
 }
 
 

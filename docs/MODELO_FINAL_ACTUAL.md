@@ -27,12 +27,13 @@ data/processed/world_cup_2026_top_scorer_predictions.csv
 3. Construir features previas a cada partido.
 4. Calcular Elo historico pre-partido.
 5. Entrenar modelo Poisson de goles esperados.
-6. Convertir goles esperados en probabilidades de marcadores.
-7. Seleccionar el pick que maximiza puntos esperados bajo reglas calibradas.
-8. Exportar predicciones del Mundial 2026.
-9. Simular fase de grupos para estimar probabilidades de clasificacion.
-10. Simular torneo completo aproximado para estimar campeon, subcampeon y tercer puesto.
-11. Estimar goleador desde candidatos editables.
+6. Aplicar ajuste estrategico de goles para picks y simulaciones.
+7. Convertir goles esperados ajustados en probabilidades de marcadores.
+8. Seleccionar el pick que maximiza puntos esperados bajo reglas calibradas.
+9. Exportar predicciones del Mundial 2026.
+10. Simular fase de grupos para estimar probabilidades de clasificacion.
+11. Simular torneo completo aproximado para estimar campeon, subcampeon y tercer puesto.
+12. Estimar goleador desde candidatos editables.
 
 ## Modelo
 
@@ -54,12 +55,55 @@ data/processed/world_cup_2026_top_scorer_predictions.csv
 
 ## Backtest
 
-Validacion cronologica sobre 6.060 partidos:
+Validacion cronologica 80/20 sobre 30.327 partidos:
 
-- MAE goles local: 1.025
-- MAE goles visitante: 0.825
-- Puntos promedio por partido, estrategia calibrada: 4.042
-- Puntos promedio por partido, marcador mas probable: 3.803
+- Dataset completo: 1993-01-01 a 2026-06-17.
+- Entrenamiento: 24.261 partidos, 1993-01-01 a 2019-11-19.
+- Validacion: 6.066 partidos, 2019-11-19 a 2026-06-17.
+
+- MAE goles local: 1.026.
+- MAE goles visitante: 0.826.
+- Puntos promedio por partido, estrategia live agresiva: 3.891.
+- Exactos, estrategia live agresiva: 627 de 6.066, 10.3%.
+- Acierto de resultado, estrategia live agresiva: 60.5%.
+- Puntos promedio por partido, marcador mas probable: 3.701.
+
+Validacion anual tipo produccion, congelada al cierre de 2024:
+
+- Entrenamiento: todos los partidos disponibles hasta 2024-12-31.
+- Estado de equipos congelado al 2024-12-31 para todos los partidos de validacion.
+- Validacion: partidos de 2025-01-01 a 2025-12-31.
+- Partidos de entrenamiento: 28.995.
+- Partidos de validacion: 1.002.
+- MAE goles local: 1.046.
+- MAE goles visitante: 0.886.
+- Puntos promedio por partido, estrategia live agresiva: 3.887.
+- Exactos, estrategia live agresiva: 104 de 1.002, 10.4%.
+- Acierto de resultado, estrategia live agresiva: 61.4%.
+
+Validacion especifica para calibrar puntos diarios:
+
+- Entrenamiento: eliminatorias previas al Mundial 2018 desde 2015-01-01 mas Mundial 2018 completo.
+- Partidos de entrenamiento: 915.
+- Estado de equipos congelado tras el Mundial 2018.
+- Validacion: eliminatorias mundialistas jugadas en 2021.
+- Partidos de validacion: 609.
+- MAE goles local: 1.117.
+- MAE goles visitante: 0.921.
+- Mejor estrategia por puntos diarios: inflacion de goles 0.90, maximo 4 goles totales candidatos, multiplicador de empates 1.21.
+- Puntos promedio por partido: 4.038.
+- Exactos: 83 de 609, 13.6%.
+- Acierto de resultado: 61.4%.
+
+Calibracion live Mundial 2026:
+
+- Partidos finalizados cargados: 26.
+- Goles reales promedio: 3.154 por partido.
+- Goles promedio esperados por el modelo pre-torneo: 2.790.
+- Ratio real/modelo: 1.130.
+- La estrategia historica 0.90 habria dado 1 exacto y 3.000 puntos por partido en esos 26 partidos.
+- El mejor ajuste live del grid fue inflacion de goles 1.40, maximo 4 goles totales candidatos, multiplicador de empates 1.00.
+- El ajuste live habria dado 2 exactos y 3.192 puntos por partido en esos 26 partidos.
 
 ## Simulacion Final
 
@@ -75,9 +119,9 @@ Benchmark posterior a optimizacion:
 
 Resultados actuales con 500.000 simulaciones:
 
-- Campeon recomendado: Spain, 21.816%.
-- Subcampeon recomendado: Argentina, 8.145% de probabilidad marginal de subcampeon.
-- Tercer puesto recomendado: Brazil, 8.336% de probabilidad marginal de tercer puesto.
+- Campeon recomendado: Argentina, 20.081%.
+- Subcampeon recomendado: Spain, 9.486% de probabilidad marginal de subcampeon.
+- Tercer puesto recomendado: England, 8.917% de probabilidad marginal de tercer puesto.
 - Goleador recomendado desde candidatos editables: Harry Kane.
 
 ## Estrategia De Picks
@@ -86,12 +130,16 @@ La estrategia final actual no elige simplemente el marcador mas probable.
 
 Usa:
 
-- Maximo de goles totales candidatos: 2
-- Multiplicador de empates: 1.21
+- Modo live agresivo calibrado contra partidos reales del Mundial 2026 ya finalizados.
+- Inflacion estrategica de goles: 1.40.
+- Maximo de goles totales candidatos: 4.
+- Multiplicador de empates: 1.00.
 - Optimizacion por puntos esperados segun reglas del juego
 - Alternativa de empate visible cuando el empate es competitivo, sin forzarla como pick principal
 
-Esto favorece marcadores conservadores como `1-0`, `0-1`, `2-0`, `0-2` y algunos empates cuando el valor historico lo justifica.
+El CSV de predicciones conserva los goles esperados crudos del modelo en `model_home_expected_goals` y `model_away_expected_goals`. Las columnas `home_expected_goals` y `away_expected_goals` son los goles esperados de estrategia usados para picks y simulaciones.
+
+Esto prioriza reaccionar al ritmo real de goles del torneo y habilita picks mas altos como `2-1`, `1-2`, `3-1`, `3-0`, `1-3` y `0-3` cuando el valor esperado lo justifica.
 
 ## Comandos
 
@@ -99,10 +147,13 @@ Esto favorece marcadores conservadores como `1-0`, `0-1`, `2-0`, `0-2` y algunos
 PYTHONPATH=src .venv/bin/python scripts/download_real_data.py
 PYTHONPATH=src .venv/bin/python scripts/build_training_dataset.py
 PYTHONPATH=src .venv/bin/python examples/evaluate_baseline_picks.py
+PYTHONPATH=src .venv/bin/python examples/evaluate_year_window_picks.py
+PYTHONPATH=src .venv/bin/python examples/evaluate_2018_cycle_to_2021_qualifiers.py
 PYTHONPATH=src .venv/bin/python scripts/predict_world_cup_fixtures.py
 PYTHONPATH=src .venv/bin/python scripts/simulate_world_cup_groups.py
 PYTHONPATH=src .venv/bin/python scripts/simulate_world_cup_tournament.py
 PYTHONPATH=src .venv/bin/python scripts/predict_top_scorer.py
+PYTHONPATH=src .venv/bin/python scripts/export_dashboard_data.py
 ```
 
 Comando unico:

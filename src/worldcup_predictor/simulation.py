@@ -34,6 +34,9 @@ class FastGroupData:
     away_local_indices: np.ndarray
     home_expected_goals: np.ndarray
     away_expected_goals: np.ndarray
+    fixed_home_scores: np.ndarray | None = None
+    fixed_away_scores: np.ndarray | None = None
+    fixed_score_mask: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,92 @@ def add_inferred_groups(fixtures: pd.DataFrame) -> pd.DataFrame:
     enriched["away_group"] = enriched["away_team"].map(groups)
     enriched["group"] = enriched["home_group"]
     return enriched
+
+
+def add_completed_results_for_simulation(
+    predictions: pd.DataFrame,
+    completed_results: pd.DataFrame,
+    tournament: str = "FIFA World Cup",
+    start_date: str = "2026-06-01",
+) -> pd.DataFrame:
+    """Return pending predictions plus fixed completed matches for group simulations."""
+    simulation_input = predictions.copy()
+    if "fixed_home_score" not in simulation_input:
+        simulation_input["fixed_home_score"] = pd.NA
+    if "fixed_away_score" not in simulation_input:
+        simulation_input["fixed_away_score"] = pd.NA
+
+    completed = completed_results[
+        (completed_results["tournament"] == tournament)
+        & (completed_results["date"] >= pd.Timestamp(start_date))
+    ].copy()
+    if completed.empty:
+        return simulation_input
+
+    existing_keys = set(
+        zip(
+            simulation_input["date"].dt.strftime("%Y-%m-%d"),
+            simulation_input["home_team"],
+            simulation_input["away_team"],
+        )
+    )
+    from worldcup_predictor.future import build_team_states
+
+    team_states = build_team_states(completed_results)
+    rows: list[dict[str, object]] = []
+    for match in completed.itertuples(index=False):
+        key = (match.date.strftime("%Y-%m-%d"), match.home_team, match.away_team)
+        if key in existing_keys:
+            continue
+
+        home_score = int(match.home_score)
+        away_score = int(match.away_score)
+        home_state = team_states.get(match.home_team)
+        away_state = team_states.get(match.away_team)
+        home_elo = float(home_state.elo) if home_state else 1500.0
+        away_elo = float(away_state.elo) if away_state else 1500.0
+        home_win_probability = 1.0 if home_score > away_score else 0.0
+        draw_probability = 1.0 if home_score == away_score else 0.0
+        away_win_probability = 1.0 if home_score < away_score else 0.0
+        row = {column: pd.NA for column in simulation_input.columns}
+        row.update(
+            {
+                "date": match.date,
+                "tournament": match.tournament,
+                "home_team": match.home_team,
+                "away_team": match.away_team,
+                "model_home_expected_goals": float(home_score),
+                "model_away_expected_goals": float(away_score),
+                "home_expected_goals": float(home_score),
+                "away_expected_goals": float(away_score),
+                "goal_inflation": 1.0,
+                "max_total_candidate_goals": pd.NA,
+                "draw_probability_multiplier": 1.0,
+                "home_win_probability": home_win_probability,
+                "draw_probability": draw_probability,
+                "away_win_probability": away_win_probability,
+                "recommended_home_score": home_score,
+                "recommended_away_score": away_score,
+                "recommended_scoreline": f"{home_score}-{away_score}",
+                "recommended_expected_points": 10.0,
+                "draw_alternative_home_score": 1,
+                "draw_alternative_away_score": 1,
+                "draw_alternative_scoreline": "1-1",
+                "draw_alternative_expected_points": 0.0,
+                "draw_alternative_is_competitive": False,
+                "home_elo": home_elo,
+                "away_elo": away_elo,
+                "elo_diff": home_elo - away_elo,
+                "fixed_home_score": home_score,
+                "fixed_away_score": away_score,
+            }
+        )
+        rows.append(row)
+
+    if not rows:
+        return simulation_input
+
+    return pd.concat([pd.DataFrame(rows), simulation_input], ignore_index=True).sort_values("date").reset_index(drop=True)
 
 
 def _empty_table(teams: list[str]) -> dict[str, dict[str, int]]:
@@ -170,8 +259,14 @@ def simulate_group_tables_once(
     for group, group_rows in fixtures.groupby("group"):
         table = _empty_table(group_teams[group])
         for match in group_rows.itertuples(index=False):
-            home_goals = int(rng.poisson(float(match.home_expected_goals)))
-            away_goals = int(rng.poisson(float(match.away_expected_goals)))
+            fixed_home_score = getattr(match, "fixed_home_score", np.nan)
+            fixed_away_score = getattr(match, "fixed_away_score", np.nan)
+            if pd.notna(fixed_home_score) and pd.notna(fixed_away_score):
+                home_goals = int(fixed_home_score)
+                away_goals = int(fixed_away_score)
+            else:
+                home_goals = int(rng.poisson(float(match.home_expected_goals)))
+                away_goals = int(rng.poisson(float(match.away_expected_goals)))
             _add_match(table, match.home_team, match.away_team, home_goals, away_goals)
 
         standings.extend(_standing_from_ranked_group(group, _rank_table(table, rng)))
@@ -397,6 +492,7 @@ def _prepare_fast_tournament_data(predictions: pd.DataFrame) -> FastTournamentDa
                 away_local_indices=away_indices,
                 home_expected_goals=group_rows["home_expected_goals"].to_numpy(dtype=float),
                 away_expected_goals=group_rows["away_expected_goals"].to_numpy(dtype=float),
+                **_fixed_score_arrays(group_rows),
             )
         )
 
@@ -408,6 +504,72 @@ def _prepare_fast_tournament_data(predictions: pd.DataFrame) -> FastTournamentDa
         attack=np.array([profiles[team].attack for team in teams], dtype=float),
         defense=np.array([profiles[team].defense for team in teams], dtype=float),
     )
+
+
+def _prepare_fast_group_data(predictions: pd.DataFrame) -> tuple[tuple[str, ...], tuple[str, ...], tuple[FastGroupData, ...]]:
+    fixtures = add_inferred_groups(predictions).sort_values(["group", "date"]).reset_index(drop=True)
+    teams = tuple(sorted(set(fixtures["home_team"]) | set(fixtures["away_team"])))
+    team_to_index = {team: index for index, team in enumerate(teams)}
+    groups_by_team = infer_groups_from_fixtures(fixtures)
+    team_groups = tuple(groups_by_team[team] for team in teams)
+
+    fast_groups: list[FastGroupData] = []
+    for group, group_rows in fixtures.groupby("group", sort=True):
+        group_team_indices = tuple(
+            sorted(
+                {team_to_index[team] for team in group_rows["home_team"]}
+                | {team_to_index[team] for team in group_rows["away_team"]}
+            )
+        )
+        local_index = {team_index: index for index, team_index in enumerate(group_team_indices)}
+        fast_groups.append(
+            FastGroupData(
+                group=group,
+                team_indices=group_team_indices,
+                home_local_indices=np.array(
+                    [local_index[team_to_index[team]] for team in group_rows["home_team"]],
+                    dtype=np.int64,
+                ),
+                away_local_indices=np.array(
+                    [local_index[team_to_index[team]] for team in group_rows["away_team"]],
+                    dtype=np.int64,
+                ),
+                home_expected_goals=group_rows["home_expected_goals"].to_numpy(dtype=float),
+                away_expected_goals=group_rows["away_expected_goals"].to_numpy(dtype=float),
+                **_fixed_score_arrays(group_rows),
+            )
+        )
+
+    return teams, team_groups, tuple(fast_groups)
+
+
+def _fixed_score_arrays(group_rows: pd.DataFrame) -> dict[str, np.ndarray | None]:
+    if "fixed_home_score" not in group_rows or "fixed_away_score" not in group_rows:
+        return {
+            "fixed_home_scores": None,
+            "fixed_away_scores": None,
+            "fixed_score_mask": None,
+        }
+
+    fixed_home_scores = pd.to_numeric(group_rows["fixed_home_score"], errors="coerce").to_numpy(dtype=float)
+    fixed_away_scores = pd.to_numeric(group_rows["fixed_away_score"], errors="coerce").to_numpy(dtype=float)
+    fixed_score_mask = np.isfinite(fixed_home_scores) & np.isfinite(fixed_away_scores)
+    return {
+        "fixed_home_scores": fixed_home_scores,
+        "fixed_away_scores": fixed_away_scores,
+        "fixed_score_mask": fixed_score_mask,
+    }
+
+
+def _sample_group_scores(group: FastGroupData, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray]:
+    home_goals = rng.poisson(group.home_expected_goals)
+    away_goals = rng.poisson(group.away_expected_goals)
+    if group.fixed_score_mask is not None and group.fixed_home_scores is not None and group.fixed_away_scores is not None:
+        fixed_home_scores = np.nan_to_num(group.fixed_home_scores, nan=0).astype(np.int64)
+        fixed_away_scores = np.nan_to_num(group.fixed_away_scores, nan=0).astype(np.int64)
+        home_goals = np.where(group.fixed_score_mask, fixed_home_scores, home_goals)
+        away_goals = np.where(group.fixed_score_mask, fixed_away_scores, away_goals)
+    return home_goals, away_goals
 
 
 def _rank_group_arrays(
@@ -452,8 +614,7 @@ def _simulate_fast_group_qualifiers(
         points = np.zeros(team_count, dtype=np.int64)
         goals_for = np.zeros(team_count, dtype=np.int64)
         goals_against = np.zeros(team_count, dtype=np.int64)
-        home_goals = rng.poisson(group.home_expected_goals)
-        away_goals = rng.poisson(group.away_expected_goals)
+        home_goals, away_goals = _sample_group_scores(group, rng)
 
         for match_index, home_local_index in enumerate(group.home_local_indices):
             away_local_index = group.away_local_indices[match_index]
@@ -547,58 +708,65 @@ def simulate_group_stage(
     if simulations < 1:
         raise ValueError("simulations must be greater than or equal to 1")
 
-    fixtures = add_inferred_groups(predictions)
+    teams, team_groups, groups = _prepare_fast_group_data(predictions)
     rng = np.random.default_rng(seed)
-    teams = sorted(set(fixtures["home_team"]) | set(fixtures["away_team"]))
-    counts = {
-        team: {"first": 0, "second": 0, "third": 0, "fourth": 0, "advance": 0}
-        for team in teams
-    }
-    group_teams = {
-        group: sorted(set(group_rows["home_team"]) | set(group_rows["away_team"]))
-        for group, group_rows in fixtures.groupby("group")
-    }
+    position_counts = np.zeros((len(teams), 4), dtype=np.int64)
+    advance_counts = np.zeros(len(teams), dtype=np.int64)
 
     for _simulation in range(simulations):
-        third_place: list[tuple[str, dict[str, int]]] = []
+        third_place: list[tuple[int, int, int, int, int]] = []
 
-        for group, group_rows in fixtures.groupby("group"):
-            table = _empty_table(group_teams[group])
-            for match in group_rows.itertuples(index=False):
-                home_goals = int(rng.poisson(float(match.home_expected_goals)))
-                away_goals = int(rng.poisson(float(match.away_expected_goals)))
-                _add_match(table, match.home_team, match.away_team, home_goals, away_goals)
+        for group in groups:
+            team_count = len(group.team_indices)
+            points = np.zeros(team_count, dtype=np.int64)
+            goals_for = np.zeros(team_count, dtype=np.int64)
+            goals_against = np.zeros(team_count, dtype=np.int64)
+            home_goals, away_goals = _sample_group_scores(group, rng)
 
-            ranked = _rank_table(table, rng)
+            for match_index, home_local_index in enumerate(group.home_local_indices):
+                away_local_index = group.away_local_indices[match_index]
+                home_score = int(home_goals[match_index])
+                away_score = int(away_goals[match_index])
+                goals_for[home_local_index] += home_score
+                goals_against[home_local_index] += away_score
+                goals_for[away_local_index] += away_score
+                goals_against[away_local_index] += home_score
+
+                if home_score > away_score:
+                    points[home_local_index] += 3
+                elif away_score > home_score:
+                    points[away_local_index] += 3
+                else:
+                    points[home_local_index] += 1
+                    points[away_local_index] += 1
+
+            ranked = _rank_group_arrays(group.team_indices, points, goals_for, goals_against, rng)
             third_place.append(ranked[2])
 
-            for position, (team, _stats) in enumerate(ranked, start=1):
-                if position == 1:
-                    counts[team]["first"] += 1
-                    counts[team]["advance"] += 1
-                elif position == 2:
-                    counts[team]["second"] += 1
-                    counts[team]["advance"] += 1
-                elif position == 3:
-                    counts[team]["third"] += 1
-                else:
-                    counts[team]["fourth"] += 1
+            for team_index, _points, _goal_difference, _goals_for, position in ranked:
+                position_counts[team_index, min(position, 4) - 1] += 1
+                if position <= 2:
+                    advance_counts[team_index] += 1
 
-        for team, _stats in _rank_table(dict(third_place), rng)[:8]:
-            counts[team]["advance"] += 1
+        best_thirds = sorted(
+            third_place,
+            key=lambda item: (item[1], item[2], item[3], float(rng.random())),
+            reverse=True,
+        )[:8]
+        for team_index, _points, _goal_difference, _goals_for, _position in best_thirds:
+            advance_counts[team_index] += 1
 
-    groups = infer_groups_from_fixtures(predictions)
     rows = []
-    for team, values in counts.items():
+    for team_index, team in enumerate(teams):
         rows.append(
             {
                 "team": team,
-                "group": groups[team],
-                "first_probability": values["first"] / simulations,
-                "second_probability": values["second"] / simulations,
-                "third_probability": values["third"] / simulations,
-                "fourth_probability": values["fourth"] / simulations,
-                "advance_probability": values["advance"] / simulations,
+                "group": team_groups[team_index],
+                "first_probability": position_counts[team_index, 0] / simulations,
+                "second_probability": position_counts[team_index, 1] / simulations,
+                "third_probability": position_counts[team_index, 2] / simulations,
+                "fourth_probability": position_counts[team_index, 3] / simulations,
+                "advance_probability": advance_counts[team_index] / simulations,
             }
         )
 

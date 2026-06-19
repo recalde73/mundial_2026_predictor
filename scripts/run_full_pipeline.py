@@ -11,6 +11,8 @@ COMMANDS = [
     ["scripts/download_real_data.py"],
     ["scripts/build_training_dataset.py"],
     ["examples/evaluate_baseline_picks.py"],
+    ["examples/evaluate_year_window_picks.py"],
+    ["examples/evaluate_2018_cycle_to_2021_qualifiers.py"],
     ["scripts/predict_world_cup_fixtures.py"],
     ["scripts/simulate_world_cup_groups.py"],
     ["scripts/simulate_world_cup_tournament.py"],

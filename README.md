@@ -113,6 +113,18 @@ Evaluar puntos historicos del baseline:
 PYTHONPATH=src .venv/bin/python examples/evaluate_baseline_picks.py
 ```
 
+Validar una ventana anual tipo produccion, entrenando hasta 2024 y prediciendo 2025:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/evaluate_year_window_picks.py
+```
+
+Calibrar estrategia de puntos diarios con eliminatorias pre-2018 + Mundial 2018 contra eliminatorias 2021:
+
+```bash
+PYTHONPATH=src .venv/bin/python examples/evaluate_2018_cycle_to_2021_qualifiers.py
+```
+
 Generar predicciones para fixtures futuros del Mundial 2026 incluidos en `results.csv`:
 
 ```bash

@@ -3,8 +3,13 @@ export type Prediction = {
   tournament: string;
   home_team: string;
   away_team: string;
+  model_home_expected_goals: number;
+  model_away_expected_goals: number;
   home_expected_goals: number;
   away_expected_goals: number;
+  goal_inflation: number;
+  max_total_candidate_goals: number;
+  draw_probability_multiplier: number;
   home_win_probability: number;
   draw_probability: number;
   away_win_probability: number;
@@ -50,6 +55,54 @@ export type TopScorer = {
   estimated_team_tournament_goals: number;
 };
 
+export type QualificationBacktestStrategy = {
+  rank: number;
+  goal_inflation: number;
+  max_total_candidate_goals: number | null;
+  draw_probability_multiplier: number;
+  matches: number;
+  total_points: number;
+  average_points: number;
+  exact_scores: number;
+  exact_score_rate: number;
+  result_accuracy_rate: number;
+  winner_and_diff: number;
+  draws: number;
+  winners: number;
+  misses: number;
+  miss_rate: number;
+  average_pick_goals: number;
+  high_total_pick_rate: number;
+  selected_strategy: boolean;
+  training_window: string;
+  validation_window: string;
+  training_matches: number;
+  training_feature_rows: number;
+  validation_matches: number;
+  home_mae: number;
+  away_mae: number;
+};
+
+export type QualificationBacktestPick = {
+  date: string;
+  home_team: string;
+  away_team: string;
+  home_score: number;
+  away_score: number;
+  home_expected_goals: number;
+  away_expected_goals: number;
+  strategy_home_expected_goals: number;
+  strategy_away_expected_goals: number;
+  optimized_home_score: number;
+  optimized_away_score: number;
+  optimized_expected_points: number;
+  optimized_points: number;
+  optimized_category: string;
+  strategy_goal_inflation: number;
+  strategy_max_total_candidate_goals: number | null;
+  strategy_draw_probability_multiplier: number;
+};
+
 export type Metadata = {
   generated_at: string;
   source: string;
@@ -63,5 +116,7 @@ export type DashboardData = {
   groups: GroupSimulation[];
   tournament: TournamentSimulation[];
   topScorers: TopScorer[];
+  qualificationBacktestStrategies: QualificationBacktestStrategy[];
+  qualificationBacktestPicks: QualificationBacktestPick[];
   metadata: Metadata;
 };

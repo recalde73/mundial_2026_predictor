@@ -50,6 +50,8 @@ def normalize_team_name(value: str) -> str:
     normalized = re.sub(r"\s+", " ", normalized).strip()
     aliases = {
         "bosnia herzegovina": "bosnia and herzegovina",
+        "congo dr": "dr congo",
+        "czechia": "czech republic",
         "turkiye": "turkey",
         "usa": "united states",
     }

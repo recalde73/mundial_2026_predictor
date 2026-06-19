@@ -53,9 +53,9 @@ Baseline inicial:
 
 Resultado de la corrida con Elo pre-partido:
 
-- Filas de entrenamiento: 24.239
-- Filas de validacion: 6.060
-- MAE goles local: 1.025
+- Filas de entrenamiento: 24.261
+- Filas de validacion: 6.066
+- MAE goles local: 1.026
 - MAE goles visitante: 0.826
 
 Resultado anterior sin Elo:
@@ -79,36 +79,67 @@ Archivo generado:
 data/processed/baseline_validation_picks.csv
 ```
 
-Validacion cronologica:
+Validacion cronologica 80/20:
 
-- Partidos evaluados: 6.060
+- Partidos evaluados: 6.066
 
-Pick optimizado por reglas del juego:
+Pick optimizado con estrategia live agresiva actual:
 
-- Puntos totales: 24.502
-- Puntos promedio por partido: 4.043
-- Resultados exactos: 838
-- Ganador + diferencia: 634
-- Empates no exactos acertados: 30
-- Ganadores acertados: 2.174
-- Fallos: 2.384
+- Puntos totales: 23.603
+- Puntos promedio por partido: 3.891
+- Resultados exactos: 627, 10.3%
+- Acierto de resultado: 60.5%
+- Ganador + diferencia: 711
+- Empates no exactos acertados: 0
+- Ganadores acertados: 2.329
+- Fallos: 2.399
 
-Estrategia calibrada:
+Estrategia actual:
 
-- Maximo de goles totales en picks candidatos: 2
-- Multiplicador de probabilidad de empates para seleccion de pick: 1.23
+- Inflacion estrategica de goles: 1.40
+- Maximo de goles totales en picks candidatos: 4
+- Multiplicador de probabilidad de empates para seleccion de pick: 1.00
 
 Marcador mas probable:
 
-- Puntos totales: 23.027
-- Puntos promedio por partido: 3.800
-- Resultados exactos: 788
-- Ganador + diferencia: 436
-- Empates no exactos acertados: 214
-- Ganadores acertados: 2.075
-- Fallos: 2.547
+- Puntos totales: 22.451
+- Puntos promedio por partido: 3.701
+- Resultados exactos: 657
+- Ganador + diferencia: 453
+- Empates no exactos acertados: 262
+- Ganadores acertados: 2.137
+- Fallos: 2.557
 
 Conclusion: para estas reglas, optimizar el valor esperado de puntos y calibrar la seleccion de picks supera a elegir simplemente el marcador mas probable.
+
+Validacion anual tipo produccion, congelada al cierre de 2024:
+
+- Entrenamiento: hasta 2024-12-31.
+- Estado de equipos congelado al 2024-12-31 para toda la validacion.
+- Validacion: 2025-01-01 a 2025-12-31.
+- Partidos evaluados: 1.002.
+- Puntos promedio por partido: 3.887.
+- Resultados exactos: 104, 10.4%.
+- Acierto de resultado: 61.4%.
+
+Validacion especifica para calibrar puntos diarios:
+
+- Entrenamiento: eliminatorias previas al Mundial 2018 desde 2015-01-01 mas Mundial 2018 completo.
+- Validacion: eliminatorias mundialistas jugadas en 2021.
+- Partidos de entrenamiento: 915.
+- Partidos evaluados: 609.
+- Mejor estrategia: inflacion de goles 0.90, maximo 4 goles totales candidatos, multiplicador de empates 1.21.
+- Puntos promedio por partido: 4.038.
+- Resultados exactos: 83, 13.6%.
+- Acierto de resultado: 61.4%.
+
+Calibracion live Mundial 2026:
+
+- Partidos finalizados cargados: 26.
+- Goles reales promedio: 3.154 por partido.
+- La estrategia historica 0.90 habria dado 1 exacto y 3.000 puntos por partido.
+- El ajuste live 1.40 habria dado 2 exactos y 3.192 puntos por partido.
+- Por eso los picks 2026 usan inflacion 1.40 aunque sea peor en validaciones historicas amplias.
 
 Mejoras recomendadas:
 
@@ -125,4 +156,6 @@ PYTHONPATH=src .venv/bin/python scripts/download_real_data.py
 PYTHONPATH=src .venv/bin/python scripts/build_training_dataset.py
 PYTHONPATH=src .venv/bin/python examples/train_baseline_model.py
 PYTHONPATH=src .venv/bin/python examples/evaluate_baseline_picks.py
+PYTHONPATH=src .venv/bin/python examples/evaluate_year_window_picks.py
+PYTHONPATH=src .venv/bin/python examples/evaluate_2018_cycle_to_2021_qualifiers.py
 ```

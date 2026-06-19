@@ -143,26 +143,51 @@ El pick recomendado no es necesariamente el marcador mas probable.
 
 Se elige el marcador que maximiza puntos esperados segun reglas del juego.
 
-Estrategia calibrada actual:
+Estrategia actual live agresiva para Mundial 2026:
 
-- Maximo de goles totales candidatos: 2.
-- Multiplicador de probabilidad de empates: 1.23.
+- Inflacion estrategica de goles: 1.40.
+- Maximo de goles totales candidatos: 4.
+- Multiplicador de probabilidad de empates: 1.00.
 - Optimizacion por valor esperado de puntos.
 
 ## Backtesting
 
-Validacion cronologica sobre 6.060 partidos historicos:
+Validacion cronologica 80/20 sobre 6.066 partidos historicos:
 
 ```text
-MAE goles local: 1.025
+MAE goles local: 1.026
 MAE goles visitante: 0.826
 ```
 
 Puntos del juego:
 
 ```text
-Estrategia calibrada: 4.043 pts/partido
-Marcador mas probable: 3.800 pts/partido
+Estrategia live agresiva: 3.891 pts/partido
+Marcador mas probable: 3.701 pts/partido
+```
+
+Validacion anual entrenando hasta 2024-12-31, congelando estado de equipos al cierre de 2024 y prediciendo 2025:
+
+```text
+Estrategia live agresiva: 3.887 pts/partido
+Exactos: 10.4%
+Acierto de resultado: 61.4%
+```
+
+Validacion especifica entrenando con eliminatorias previas al Mundial 2018 mas Mundial 2018, y prediciendo eliminatorias mundialistas 2021:
+
+```text
+Estrategia diaria calibrada: 4.038 pts/partido
+Exactos: 13.6%
+Acierto de resultado: 61.4%
+```
+
+Calibracion live Mundial 2026 con 26 partidos finalizados cargados:
+
+```text
+Goles reales promedio: 3.154 por partido
+Estrategia historica 0.90: 1 exacto, 3.000 pts/partido
+Estrategia live 1.40: 2 exactos, 3.192 pts/partido
 ```
 
 Conclusion: optimizar por reglas del juego supera a elegir el marcador mas probable.
@@ -214,19 +239,19 @@ Limitacion: el bracket de eliminatorias usa una aproximacion por siembra competi
 Con 500.000 simulaciones:
 
 ```text
-Campeon recomendado: Spain
-Subcampeon recomendado: Argentina
-Tercer puesto recomendado: Brazil
+Campeon recomendado: Argentina
+Subcampeon recomendado: Spain
+Tercer puesto recomendado: England
 ```
 
 Principales probabilidades de campeon:
 
 ```text
-Spain: ~23.0%
-Argentina: ~15.7-15.8%
-England: ~7.7%
-France: ~7.2%
-Brazil: ~7.0%
+Argentina: ~20.1%
+Spain: ~15.5%
+England: ~12.7%
+Brazil: ~10.2%
+France: ~8.7%
 ```
 
 Goleador recomendado actual:
