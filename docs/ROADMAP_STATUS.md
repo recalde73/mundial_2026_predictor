@@ -19,6 +19,7 @@
 - Crear estimador de goleador desde candidatos editables.
 - Crear comando unico de producto final.
 - Optimizar simulador de torneo completo y correr 500.000 simulaciones.
+- Integrar ajustes contextuales manuales por lesiones, sanciones, rotaciones y noticias recientes.
 
 ## Resuelto Con Aproximacion
 
@@ -30,7 +31,7 @@
 
 - Confirmar si los resultados de eliminatorias del juego se predicen a 90 minutos, 120 minutos o con penales.
 - Confirmar si existe bonus de clasificado correcto y cuantos puntos vale.
-- Integrar lesiones, XI confirmado y cuotas de apuestas cerca del kickoff.
+- Automatizar lesiones, XI confirmado y cuotas de apuestas cerca del kickoff.
 - Integrar valor de plantel y datos de jugadores desde una fuente confiable.
 - Convertir el flujo en dashboard visual si se decide que hace falta.
 

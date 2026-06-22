@@ -99,13 +99,14 @@ function App() {
           <p className="eyebrow">Mundial 2026 Predictor</p>
           <h1>Motor de picks, simulaciones y podio</h1>
           <p className="heroText">
-            Dashboard generado desde el modelo con datos reales, Elo historico, simulaciones reproducibles y optimizacion por puntos del juego.
+            Dashboard generado desde el modelo con datos reales, Elo historico, ajustes contextuales, Monte Carlo reproducible y optimizacion por puntos del juego.
           </p>
         </div>
         <div className="heroCard">
           <span>Simulaciones torneo</span>
           <strong>{data.metadata.tournament_simulations.toLocaleString('es-AR')}</strong>
           <small>Grupos: {data.metadata.group_simulations.toLocaleString('es-AR')} · Seed {data.metadata.simulation_seed}</small>
+          <small>Monte Carlo: frecuencia de campeon sobre torneos simulados</small>
           <small>Actualizado: {new Date(data.metadata.generated_at).toLocaleString('es-AR')}</small>
         </div>
       </header>
@@ -202,7 +203,8 @@ function Summary({ data }: { data: DashboardData }) {
       </article>
 
       <article className="panel">
-        <h2>Candidatos al titulo</h2>
+        <h2>Monte Carlo campeon</h2>
+        <p>Frecuencia con la que cada equipo gana el Mundial en {data.metadata.tournament_simulations.toLocaleString('es-AR')} torneos simulados.</p>
         <BarList rows={topChampion.map((row) => ({ label: row.team, value: row.champion_probability }))} />
       </article>
 
@@ -263,6 +265,9 @@ function MatchesTable({ rows }: { rows: Prediction[] }) {
                 <div className="pickCell">
                   <span>{num(row.home_expected_goals)} - {num(row.away_expected_goals)}</span>
                   <small>Modelo: {num(row.model_home_expected_goals)} - {num(row.model_away_expected_goals)}</small>
+                  {row.context_applied && (
+                    <small>Contexto: {num(row.context_home_expected_goals)} - {num(row.context_away_expected_goals)} · {row.context_confidence || 'manual'}</small>
+                  )}
                 </div>
               </td>
               <td>{pct(row.home_win_probability)} / {pct(row.draw_probability)} / {pct(row.away_win_probability)}</td>
@@ -272,6 +277,7 @@ function MatchesTable({ rows }: { rows: Prediction[] }) {
                   {row.draw_alternative_is_competitive && (
                     <small>Empate: {row.draw_alternative_scoreline} · {num(row.draw_alternative_expected_points)} pts</small>
                   )}
+                  {row.context_applied && row.context_notes && <small>{row.context_notes}</small>}
                 </div>
               </td>
               <td>{num(row.recommended_expected_points)}</td>
@@ -397,7 +403,7 @@ function GroupsTable({ rows }: { rows: GroupSimulation[] }) {
 
 function TournamentTable({ rows }: { rows: TournamentSimulation[] }) {
   return (
-    <TablePanel title="Simulacion completa del torneo" count={rows.length}>
+    <TablePanel title="Monte Carlo del torneo" count={rows.length}>
       <table>
         <thead>
           <tr>

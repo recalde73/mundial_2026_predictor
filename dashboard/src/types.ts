@@ -5,6 +5,16 @@ export type Prediction = {
   away_team: string;
   model_home_expected_goals: number;
   model_away_expected_goals: number;
+  context_home_expected_goals: number;
+  context_away_expected_goals: number;
+  context_home_attack_multiplier: number;
+  context_home_defense_multiplier: number;
+  context_away_attack_multiplier: number;
+  context_away_defense_multiplier: number;
+  context_draw_probability_multiplier: number;
+  context_applied: boolean;
+  context_confidence: string | null;
+  context_notes: string | null;
   home_expected_goals: number;
   away_expected_goals: number;
   goal_inflation: number;

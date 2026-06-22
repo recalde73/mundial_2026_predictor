@@ -194,7 +194,9 @@ Esto hace automaticamente:
 - Descarga `data/raw/results.csv`, `goalscorers.csv` y `shootouts.csv`.
 - Consulta partidos finalizados del Mundial en ESPN desde `2026-06-11` hasta hoy.
 - Actualiza `data/manual/match_results_overrides.csv`.
-- Ejecuta el pipeline completo.
+- Reconstruye features, actualiza Elo/forma reciente y reentrena el modelo final.
+- Aplica ajustes contextuales manuales desde `data/manual/match_context_overrides.csv`.
+- Ejecuta Monte Carlo de grupos y torneo completo.
 - Compila el dashboard.
 - Reinicia `vite preview` en `http://localhost:4173`.
 

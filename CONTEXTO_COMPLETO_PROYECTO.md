@@ -388,14 +388,13 @@ docs/ACTUALIZACION_DURANTE_TORNEO.md
 - El bracket de eliminatorias es aproximado hasta confirmar el cuadro oficial exacto.
 - No integra aun cuotas de apuestas.
 - No integra aun XI confirmado automaticamente.
-- No integra aun lesiones/sanciones automaticamente.
+- Lesiones/sanciones se integran por CSV manual, no automaticamente desde una fuente externa.
 - No integra valor de plantel ni datos de mercado.
 - Goleador depende de candidatos y supuestos manuales.
 
 ## Mejoras Futuras Recomendadas
 
-- Archivo manual de lesiones/sanciones.
-- Archivo manual de XI confirmado.
+- Fuente automatica de lesiones/sanciones y XI confirmado.
 - Integracion de cuotas de apuestas cercanas al kickoff.
 - Ajuste por necesidad tactica en fase de grupos.
 - Bracket oficial exacto de eliminatorias 2026.

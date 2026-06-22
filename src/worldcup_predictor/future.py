@@ -23,6 +23,7 @@ from worldcup_predictor.scoring import candidate_scorelines, expected_points
 
 COMPETITIVE_DRAW_PROBABILITY_THRESHOLD = 0.26
 COMPETITIVE_DRAW_RESULT_MARGIN = 0.03
+MIN_CONTEXT_EXPECTED_GOALS = 0.05
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,51 @@ def _best_draw_alternative(
     return max(
         ((candidate, expected_points(candidate, adjusted_probabilities)) for candidate in draw_candidates),
         key=lambda item: item[1],
+    )
+
+
+def _fixture_key(date: object, home_team: str, away_team: str) -> tuple[str, str, str]:
+    return (pd.Timestamp(date).strftime("%Y-%m-%d"), home_team, away_team)
+
+
+def _build_context_override_map(
+    context_overrides: pd.DataFrame | None,
+) -> dict[tuple[str, str, str], dict[str, object]]:
+    if context_overrides is None or context_overrides.empty:
+        return {}
+
+    overrides: dict[tuple[str, str, str], dict[str, object]] = {}
+    for row in context_overrides.itertuples(index=False):
+        key = _fixture_key(row.date, str(row.home_team), str(row.away_team))
+        overrides[key] = {
+            "home_attack_multiplier": float(getattr(row, "home_attack_multiplier", 1.0)),
+            "home_defense_multiplier": float(getattr(row, "home_defense_multiplier", 1.0)),
+            "away_attack_multiplier": float(getattr(row, "away_attack_multiplier", 1.0)),
+            "away_defense_multiplier": float(getattr(row, "away_defense_multiplier", 1.0)),
+            "draw_probability_multiplier": float(getattr(row, "draw_probability_multiplier", 1.0)),
+            "confidence": "" if pd.isna(getattr(row, "confidence", "")) else str(getattr(row, "confidence", "")),
+            "notes": "" if pd.isna(getattr(row, "notes", "")) else str(getattr(row, "notes", "")),
+        }
+    return overrides
+
+
+def _context_adjustment_for(
+    context_overrides: dict[tuple[str, str, str], dict[str, object]],
+    date: object,
+    home_team: str,
+    away_team: str,
+) -> dict[str, object]:
+    return context_overrides.get(
+        _fixture_key(date, home_team, away_team),
+        {
+            "home_attack_multiplier": 1.0,
+            "home_defense_multiplier": 1.0,
+            "away_attack_multiplier": 1.0,
+            "away_defense_multiplier": 1.0,
+            "draw_probability_multiplier": 1.0,
+            "confidence": "",
+            "notes": "",
+        },
     )
 
 
@@ -206,15 +252,41 @@ def predict_fixture_picks(
     max_total_candidate_goals: int | None = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
     goal_inflation: float = DEFAULT_GOAL_INFLATION,
+    context_overrides: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Predict expected goals and recommended picks for future fixtures."""
     predictions = predict_expected_goals(model, fixture_features)
+    context_by_fixture = _build_context_override_map(context_overrides)
     rows: list[dict[str, object]] = []
 
     for match in predictions.itertuples(index=False):
+        context = _context_adjustment_for(
+            context_by_fixture,
+            match.date,
+            str(match.home_team),
+            str(match.away_team),
+        )
+        context_applied = _fixture_key(match.date, str(match.home_team), str(match.away_team)) in context_by_fixture
+        model_home_expected_goals = float(match.home_expected_goals)
+        model_away_expected_goals = float(match.away_expected_goals)
+        context_home_expected_goals = max(
+            MIN_CONTEXT_EXPECTED_GOALS,
+            model_home_expected_goals
+            * float(context["home_attack_multiplier"])
+            * float(context["away_defense_multiplier"]),
+        )
+        context_away_expected_goals = max(
+            MIN_CONTEXT_EXPECTED_GOALS,
+            model_away_expected_goals
+            * float(context["away_attack_multiplier"])
+            * float(context["home_defense_multiplier"]),
+        )
+        effective_draw_probability_multiplier = (
+            draw_probability_multiplier * float(context["draw_probability_multiplier"])
+        )
         strategy_home_expected_goals, strategy_away_expected_goals = apply_goal_inflation(
-            float(match.home_expected_goals),
-            float(match.away_expected_goals),
+            context_home_expected_goals,
+            context_away_expected_goals,
             goal_inflation=goal_inflation,
         )
         probabilities = scoreline_probabilities(
@@ -225,7 +297,7 @@ def predict_fixture_picks(
         pick, pick_expected_points = rank_predictions(
             probabilities,
             max_total_candidate_goals=max_total_candidate_goals,
-            draw_probability_multiplier=draw_probability_multiplier,
+            draw_probability_multiplier=effective_draw_probability_multiplier,
             limit=1,
         )[0]
         home_win_probability = sum(
@@ -245,7 +317,7 @@ def predict_fixture_picks(
         )
         draw_pick, draw_expected_points = _best_draw_alternative(
             probabilities,
-            draw_probability_multiplier=draw_probability_multiplier,
+            draw_probability_multiplier=effective_draw_probability_multiplier,
         )
         draw_is_competitive = (
             draw_probability >= COMPETITIVE_DRAW_PROBABILITY_THRESHOLD
@@ -258,13 +330,23 @@ def predict_fixture_picks(
                 "tournament": match.tournament,
                 "home_team": match.home_team,
                 "away_team": match.away_team,
-                "model_home_expected_goals": float(match.home_expected_goals),
-                "model_away_expected_goals": float(match.away_expected_goals),
+                "model_home_expected_goals": model_home_expected_goals,
+                "model_away_expected_goals": model_away_expected_goals,
+                "context_home_expected_goals": context_home_expected_goals,
+                "context_away_expected_goals": context_away_expected_goals,
+                "context_home_attack_multiplier": float(context["home_attack_multiplier"]),
+                "context_home_defense_multiplier": float(context["home_defense_multiplier"]),
+                "context_away_attack_multiplier": float(context["away_attack_multiplier"]),
+                "context_away_defense_multiplier": float(context["away_defense_multiplier"]),
+                "context_draw_probability_multiplier": float(context["draw_probability_multiplier"]),
+                "context_applied": context_applied,
+                "context_confidence": str(context["confidence"]),
+                "context_notes": str(context["notes"]),
                 "home_expected_goals": strategy_home_expected_goals,
                 "away_expected_goals": strategy_away_expected_goals,
                 "goal_inflation": goal_inflation,
                 "max_total_candidate_goals": max_total_candidate_goals,
-                "draw_probability_multiplier": draw_probability_multiplier,
+                "draw_probability_multiplier": effective_draw_probability_multiplier,
                 "home_win_probability": home_win_probability,
                 "draw_probability": draw_probability,
                 "away_win_probability": away_win_probability,
@@ -293,6 +375,7 @@ def train_final_model_and_predict_fixtures(
     max_total_candidate_goals: int | None = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
     goal_inflation: float = DEFAULT_GOAL_INFLATION,
+    context_overrides: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Fit on all processed history and predict future fixture picks."""
     model = fit_goal_model(processed_matches)
@@ -304,4 +387,5 @@ def train_final_model_and_predict_fixtures(
         max_total_candidate_goals=max_total_candidate_goals,
         draw_probability_multiplier=draw_probability_multiplier,
         goal_inflation=goal_inflation,
+        context_overrides=context_overrides,
     )
