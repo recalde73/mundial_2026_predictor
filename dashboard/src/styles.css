@@ -71,63 +71,9 @@ select {
 }
 
 .worldCupLogo {
-  position: relative;
-  display: grid;
-  width: 92px;
-  height: 92px;
-  place-items: center;
-  border: 1px solid rgba(247, 201, 72, 0.34);
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.32), transparent 1.45rem),
-    linear-gradient(145deg, rgba(11, 78, 162, 0.92), rgba(6, 22, 51, 0.74));
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.26), inset 0 0 28px rgba(247, 201, 72, 0.12);
-  overflow: hidden;
-}
-
-.worldCupLogo::after {
-  content: "";
-  position: absolute;
-  inset: 54px 20px 14px;
-  border-radius: 999px 999px 10px 10px;
-  background: linear-gradient(90deg, var(--wc-green), var(--wc-gold), var(--wc-red));
-}
-
-.logoOrb {
-  position: absolute;
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  mix-blend-mode: screen;
-}
-
-.logoOrbBlue {
-  top: 13px;
-  left: 22px;
-  background: #2f80ff;
-}
-
-.logoOrbGold {
-  top: 16px;
-  right: 17px;
-  background: var(--wc-gold);
-}
-
-.logoOrbRed {
-  top: 36px;
-  left: 31px;
-  background: var(--wc-red);
-}
-
-.logoCup {
-  position: relative;
-  z-index: 1;
-  margin-top: 18px;
-  color: #ffffff;
-  font-size: 1.65rem;
-  font-weight: 900;
-  letter-spacing: -0.08em;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.45);
+  width: min(180px, 42vw);
+  height: auto;
+  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.36));
 }
 
 .eyebrow {
