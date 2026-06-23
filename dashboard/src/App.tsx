@@ -97,11 +97,13 @@ function App() {
       <header className="hero">
         <div className="heroContent">
           <img className="worldCupLogo" src="/world-cup-2026-emblem.svg" alt="Logo Mundial 2026" />
-          <p className="eyebrow">Mundial 2026 Predictor</p>
-          <h1>Motor de picks, simulaciones y podio</h1>
-          <p className="heroText">
-            Dashboard generado desde el modelo con datos reales, Elo historico, ajustes contextuales, Monte Carlo reproducible y optimizacion por puntos del juego.
-          </p>
+          <div className="heroCopy">
+            <p className="eyebrow">Mundial 2026 Predictor</p>
+            <h1>Motor de picks, simulaciones y podio</h1>
+            <p className="heroText">
+              Dashboard generado desde el modelo con datos reales, Elo historico, ajustes contextuales, Monte Carlo reproducible y optimizacion por puntos del juego.
+            </p>
+          </div>
         </div>
         <div className="heroCard">
           <span>Simulaciones torneo</span>

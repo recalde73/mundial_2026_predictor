@@ -51,9 +51,9 @@ select {
 
 .hero {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 24px;
-  align-items: end;
+  align-items: center;
   padding: 28px;
   border: 1px solid var(--wc-border);
   border-radius: 28px;
@@ -69,11 +69,17 @@ select {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 22px;
   align-items: center;
+  min-width: 0;
+}
+
+.heroCopy {
+  min-width: 0;
 }
 
 .worldCupLogo {
-  width: clamp(96px, 11vw, 136px);
+  width: clamp(88px, 9vw, 120px);
   height: auto;
+  flex-shrink: 0;
   filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.36));
 }
 
@@ -403,11 +409,11 @@ tr:hover td {
   }
 
   .heroContent {
-    grid-template-columns: 1fr;
-    gap: 14px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px;
   }
 
   .worldCupLogo {
-    width: 92px;
+    width: 74px;
   }
 }
