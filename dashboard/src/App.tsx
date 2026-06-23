@@ -95,7 +95,13 @@ function App() {
   return (
     <main className="shell">
       <header className="hero">
-        <div>
+        <div className="heroContent">
+          <div className="worldCupLogo" aria-label="Logo Mundial 2026" role="img">
+            <span className="logoOrb logoOrbBlue" />
+            <span className="logoOrb logoOrbGold" />
+            <span className="logoOrb logoOrbRed" />
+            <span className="logoCup">26</span>
+          </div>
           <p className="eyebrow">Mundial 2026 Predictor</p>
           <h1>Motor de picks, simulaciones y podio</h1>
           <p className="heroText">
