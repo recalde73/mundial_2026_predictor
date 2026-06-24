@@ -18,12 +18,22 @@ from urllib.request import urlopen
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_RESULTS_PATH = PROJECT_ROOT / "data" / "raw" / "results.csv"
 OVERRIDES_PATH = PROJECT_ROOT / "data" / "manual" / "match_results_overrides.csv"
+PLAYED_MATCHES_HISTORY_PATH = PROJECT_ROOT / "data" / "processed" / "world_cup_2026_played_matches.csv"
 DASHBOARD_DIR = PROJECT_ROOT / "dashboard"
 PREVIEW_PID_PATH = DASHBOARD_DIR / ".vite-preview.pid"
 PREVIEW_LOG_PATH = DASHBOARD_DIR / "vite-preview.log"
 ESPN_SCOREBOARD_URL = (
     "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates={date}"
 )
+RESULT_FIELDNAMES = ["date", "home_team", "away_team", "home_score", "away_score"]
+PLAYED_MATCHES_HISTORY_FIELDNAMES = [
+    "date",
+    "tournament",
+    "home_team",
+    "away_team",
+    "home_score",
+    "away_score",
+]
 
 
 def run(command: list[str], cwd: Path = PROJECT_ROOT, env: dict[str, str] | None = None) -> None:
@@ -150,13 +160,53 @@ def read_overrides() -> dict[tuple[str, str, str], dict[str, str]]:
 
 
 def write_overrides(rows: dict[tuple[str, str, str], dict[str, str]]) -> None:
-    fieldnames = ["date", "home_team", "away_team", "home_score", "away_score"]
     OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
     ordered_rows = sorted(rows.values(), key=lambda row: (row["date"], row["home_team"], row["away_team"]))
     with OVERRIDES_PATH.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
+        writer = csv.DictWriter(file, fieldnames=RESULT_FIELDNAMES, lineterminator="\n")
         writer.writeheader()
         writer.writerows(ordered_rows)
+
+
+def read_played_matches_history() -> dict[tuple[str, str, str], dict[str, str]]:
+    if not PLAYED_MATCHES_HISTORY_PATH.exists():
+        return {}
+    with PLAYED_MATCHES_HISTORY_PATH.open(newline="") as file:
+        reader = csv.DictReader(file)
+        return {
+            (row["date"], row["home_team"], row["away_team"]): row
+            for row in reader
+        }
+
+
+def write_played_matches_history(rows: dict[tuple[str, str, str], dict[str, str]]) -> None:
+    PLAYED_MATCHES_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ordered_rows = sorted(rows.values(), key=lambda row: (row["date"], row["home_team"], row["away_team"]))
+    with PLAYED_MATCHES_HISTORY_PATH.open("w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=PLAYED_MATCHES_HISTORY_FIELDNAMES, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(ordered_rows)
+
+
+def sync_played_matches_history(results: dict[tuple[str, str, str], dict[str, str]]) -> int:
+    history = read_played_matches_history()
+    changed = 0
+    for result in results.values():
+        row = {
+            "date": result["date"],
+            "tournament": "FIFA World Cup",
+            "home_team": result["home_team"],
+            "away_team": result["away_team"],
+            "home_score": result["home_score"],
+            "away_score": result["away_score"],
+        }
+        key = (row["date"], row["home_team"], row["away_team"])
+        if history.get(key) != row:
+            history[key] = row
+            changed += 1
+
+    write_played_matches_history(history)
+    return changed
 
 
 def sync_result_overrides(start: date, end: date) -> int:
@@ -172,8 +222,10 @@ def sync_result_overrides(start: date, end: date) -> int:
             changed += 1
 
     write_overrides(overrides)
+    history_changed = sync_played_matches_history(overrides)
     print(f"Completed ESPN results found: {len(espn_results)}")
     print(f"Manual overrides changed: {changed}")
+    print(f"Played matches history changed: {history_changed}")
     return changed
 
 

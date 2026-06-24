@@ -16,3 +16,4 @@ data/raw/*
 data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/processed/world_cup_2026_played_matches.csv
