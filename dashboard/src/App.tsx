@@ -5,17 +5,19 @@ import type {
   GroupSimulation,
   Metadata,
   Prediction,
+  PredictionAudit,
   QualificationBacktestPick,
   QualificationBacktestStrategy,
   TopScorer,
   TournamentSimulation,
 } from './types';
 
-type Tab = 'summary' | 'matches' | 'groups' | 'tournament' | 'scorers' | 'backtest';
+type Tab = 'summary' | 'matches' | 'effectiveness' | 'groups' | 'tournament' | 'scorers' | 'backtest';
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'summary', label: 'Resumen' },
   { id: 'matches', label: 'Partidos' },
+  { id: 'effectiveness', label: 'Efectividad' },
   { id: 'groups', label: 'Grupos' },
   { id: 'tournament', label: 'Torneo' },
   { id: 'scorers', label: 'Goleador' },
@@ -32,6 +34,7 @@ const json = async <T,>(path: string): Promise<T> => {
 
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
 const num = (value: number, digits = 2) => value.toFixed(digits);
+const MAX_POINTS_PER_MATCH = 10;
 
 function App() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -43,6 +46,7 @@ function App() {
   useEffect(() => {
     Promise.all([
       json<Prediction[]>('/data/predictions.json'),
+      json<PredictionAudit[]>('/data/prediction_audit.json'),
       json<GroupSimulation[]>('/data/groups.json'),
       json<TournamentSimulation[]>('/data/tournament.json'),
       json<TopScorer[]>('/data/top_scorers.json'),
@@ -50,8 +54,8 @@ function App() {
       json<QualificationBacktestPick[]>('/data/qualification_backtest_picks.json'),
       json<Metadata>('/data/metadata.json'),
     ])
-      .then(([predictions, groups, tournament, topScorers, qualificationBacktestStrategies, qualificationBacktestPicks, metadata]) => {
-        setData({ predictions, groups, tournament, topScorers, qualificationBacktestStrategies, qualificationBacktestPicks, metadata });
+      .then(([predictions, predictionAudit, groups, tournament, topScorers, qualificationBacktestStrategies, qualificationBacktestPicks, metadata]) => {
+        setData({ predictions, predictionAudit, groups, tournament, topScorers, qualificationBacktestStrategies, qualificationBacktestPicks, metadata });
       })
       .catch((caught: unknown) => {
         setError(caught instanceof Error ? caught.message : 'Error desconocido');
@@ -79,11 +83,19 @@ function App() {
   const normalizedQuery = query.trim().toLowerCase();
   const teamMatches = (team: string) => !normalizedQuery || team.toLowerCase().includes(normalizedQuery);
   const groupMatches = (rowGroup: string) => group === 'all' || rowGroup === group;
+  const matchGroupMatches = (homeTeam: string, awayTeam: string) => (
+    group === 'all' || groupForTeam(data.groups, homeTeam) === group || groupForTeam(data.groups, awayTeam) === group
+  );
 
   const filteredPredictions = data.predictions.filter(
     (row) =>
       (teamMatches(row.home_team) || teamMatches(row.away_team)) &&
-      (group === 'all' || groupForTeam(data.groups, row.home_team) === group),
+      matchGroupMatches(row.home_team, row.away_team),
+  );
+  const filteredPredictionAudit = data.predictionAudit.filter(
+    (row) =>
+      (teamMatches(row.home_team) || teamMatches(row.away_team)) &&
+      matchGroupMatches(row.home_team, row.away_team),
   );
   const filteredGroups = data.groups.filter((row) => teamMatches(row.team) && groupMatches(row.group));
   const filteredTournament = data.tournament.filter((row) => teamMatches(row.team) && groupMatches(row.group));
@@ -145,6 +157,7 @@ function App() {
 
       {tab === 'summary' && <Summary data={data} />}
       {tab === 'matches' && <MatchesTable rows={filteredPredictions} />}
+      {tab === 'effectiveness' && <EffectivenessPanel rows={filteredPredictionAudit} />}
       {tab === 'groups' && <GroupsTable rows={filteredGroups} />}
       {tab === 'tournament' && <TournamentTable rows={filteredTournament} />}
       {tab === 'scorers' && <ScorersTable rows={filteredScorers} />}
@@ -169,6 +182,7 @@ function Summary({ data }: { data: DashboardData }) {
   const scorer = data.topScorers[0];
   const backtest = data.qualificationBacktestStrategies.find((row) => row.selected_strategy) ?? data.qualificationBacktestStrategies[0];
   const strategy = data.predictions[0];
+  const effectiveness = summarizePredictionAudit(data.predictionAudit);
   const topChampion = data.tournament.slice(0, 8);
   const topMatches = [...data.predictions]
     .sort((a, b) => b.recommended_expected_points - a.recommended_expected_points)
@@ -205,6 +219,19 @@ function Summary({ data }: { data: DashboardData }) {
         </p>
       </article>
 
+      <article className="panel effectivenessCard">
+        <h2>Efectividad vs partidos jugados</h2>
+        <div className="metricGrid">
+          <Metric label="Efectividad real" value={pct(effectiveness.actualEffectiveness)} />
+          <Metric label="Efectividad esperada" value={pct(effectiveness.expectedEffectiveness)} />
+          <Metric label="Acierto resultado" value={pct(effectiveness.resultAccuracy)} />
+          <Metric label="Marcador exacto" value={pct(effectiveness.exactScoreRate)} />
+        </div>
+        <p>
+          {effectiveness.matches} partidos terminados. Real: {effectiveness.actualPoints}/{effectiveness.maxPoints} pts. Esperada: {num(effectiveness.expectedPoints)} pts segun EV de los picks.
+        </p>
+      </article>
+
       <article className="panel">
         <h2>Monte Carlo campeon</h2>
         <p>Frecuencia con la que cada equipo gana el Mundial en {data.metadata.tournament_simulations.toLocaleString('es-AR')} torneos simulados.</p>
@@ -222,6 +249,60 @@ function Summary({ data }: { data: DashboardData }) {
           ))}
         </div>
       </article>
+    </section>
+  );
+}
+
+function EffectivenessPanel({ rows }: { rows: PredictionAudit[] }) {
+  const summary = summarizePredictionAudit(rows);
+
+  return (
+    <section className="grid">
+      <article className="panel span2 effectivenessCard">
+        <h2>Efectividad del modelo en partidos terminados</h2>
+        <div className="metricGrid wide">
+          <Metric label="Partidos" value={summary.matches.toLocaleString('es-AR')} />
+          <Metric label="Efectividad real" value={pct(summary.actualEffectiveness)} />
+          <Metric label="Efectividad esperada" value={pct(summary.expectedEffectiveness)} />
+          <Metric label="Acierto resultado" value={pct(summary.resultAccuracy)} />
+          <Metric label="Marcador exacto" value={pct(summary.exactScoreRate)} />
+          <Metric label="Puntos" value={`${summary.actualPoints}/${summary.maxPoints}`} />
+        </div>
+        <p>
+          La efectividad real usa los puntos obtenidos contra el marcador final sobre {MAX_POINTS_PER_MATCH} posibles por partido. La esperada usa los puntos esperados del pick antes de saber el resultado.
+        </p>
+      </article>
+
+      <TablePanel title="Auditoria partido a partido" count={rows.length} className="span2">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Partido</th>
+              <th>Real</th>
+              <th>Pick</th>
+              <th>EV</th>
+              <th>Esperada</th>
+              <th>Real</th>
+              <th>Categoria</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={`${row.date}-${row.home_team}-${row.away_team}`}>
+                <td>{row.date}</td>
+                <td><strong>{row.home_team}</strong> vs <strong>{row.away_team}</strong></td>
+                <td>{row.home_score}-{row.away_score}</td>
+                <td><span className="pill">{row.recommended_scoreline}</span></td>
+                <td>{num(row.recommended_expected_points)}</td>
+                <td>{pct(row.expected_effectiveness)}</td>
+                <td>{row.actual_points} pts · {pct(row.actual_effectiveness)}</td>
+                <td>{categoryLabel(row.actual_category)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TablePanel>
     </section>
   );
 }
@@ -466,9 +547,9 @@ function ScorersTable({ rows }: { rows: TopScorer[] }) {
   );
 }
 
-function TablePanel({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+function TablePanel({ title, count, children, className = '' }: { title: string; count: number; children: ReactNode; className?: string }) {
   return (
-    <section className="panel tablePanel">
+    <section className={`panel tablePanel ${className}`.trim()}>
       <div className="panelHeader">
         <h2>{title}</h2>
         <span>{count} filas</span>
@@ -502,6 +583,37 @@ function BarList({ rows }: { rows: Array<{ label: string; value: number }> }) {
 
 function groupForTeam(rows: GroupSimulation[], team: string) {
   return rows.find((row) => row.team === team)?.group;
+}
+
+function summarizePredictionAudit(rows: PredictionAudit[]) {
+  const matches = rows.length;
+  const maxPoints = matches * MAX_POINTS_PER_MATCH;
+  const actualPoints = rows.reduce((total, row) => total + row.actual_points, 0);
+  const expectedPoints = rows.reduce((total, row) => total + row.recommended_expected_points, 0);
+  const resultHits = rows.filter((row) => row.result_correct).length;
+  const exactScores = rows.filter((row) => row.exact_score).length;
+
+  return {
+    matches,
+    maxPoints,
+    actualPoints,
+    expectedPoints,
+    actualEffectiveness: maxPoints ? actualPoints / maxPoints : 0,
+    expectedEffectiveness: maxPoints ? expectedPoints / maxPoints : 0,
+    resultAccuracy: matches ? resultHits / matches : 0,
+    exactScoreRate: matches ? exactScores / matches : 0,
+  };
+}
+
+function categoryLabel(category: string) {
+  const labels: Record<string, string> = {
+    exact_score: 'Marcador exacto',
+    winner_and_diff: 'Ganador y diferencia',
+    draw: 'Empate',
+    winner: 'Ganador',
+    miss: 'Fallo',
+  };
+  return labels[category] ?? category;
 }
 
 function distinctBest<T extends { team: string } & Record<string, string | number>>(rows: T[], excluded: string[], key: keyof T): T {

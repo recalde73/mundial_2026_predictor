@@ -14,6 +14,7 @@ COMMANDS = [
     ["examples/evaluate_year_window_picks.py"],
     ["examples/evaluate_2018_cycle_to_2021_qualifiers.py"],
     ["scripts/predict_world_cup_fixtures.py"],
+    ["scripts/evaluate_world_cup_played_predictions.py"],
     ["scripts/simulate_world_cup_groups.py"],
     ["scripts/simulate_world_cup_tournament.py"],
     ["scripts/predict_top_scorer.py"],

@@ -33,6 +33,32 @@ export type Prediction = {
   elo_diff: number;
 };
 
+export type PredictionAudit = {
+  date: string;
+  tournament: string;
+  home_team: string;
+  away_team: string;
+  home_score: number;
+  away_score: number;
+  model_home_expected_goals: number;
+  model_away_expected_goals: number;
+  home_expected_goals: number;
+  away_expected_goals: number;
+  home_win_probability: number;
+  draw_probability: number;
+  away_win_probability: number;
+  recommended_home_score: number;
+  recommended_away_score: number;
+  recommended_scoreline: string;
+  recommended_expected_points: number;
+  expected_effectiveness: number;
+  actual_points: number;
+  actual_effectiveness: number;
+  actual_category: string;
+  result_correct: boolean;
+  exact_score: boolean;
+};
+
 export type GroupSimulation = {
   team: string;
   group: string;
@@ -123,6 +149,7 @@ export type Metadata = {
 
 export type DashboardData = {
   predictions: Prediction[];
+  predictionAudit: PredictionAudit[];
   groups: GroupSimulation[];
   tournament: TournamentSimulation[];
   topScorers: TopScorer[];

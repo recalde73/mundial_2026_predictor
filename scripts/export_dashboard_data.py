@@ -16,6 +16,7 @@ SIMULATION_SEED = 2026
 
 DATASETS = {
     "predictions": PROCESSED_DIR / "world_cup_2026_predictions.csv",
+    "prediction_audit": PROCESSED_DIR / "world_cup_2026_prediction_audit.csv",
     "groups": PROCESSED_DIR / "world_cup_2026_group_simulation.csv",
     "tournament": PROCESSED_DIR / "world_cup_2026_tournament_simulation.csv",
     "top_scorers": PROCESSED_DIR / "world_cup_2026_top_scorer_predictions.csv",

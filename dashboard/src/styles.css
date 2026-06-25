@@ -237,7 +237,12 @@ h2 {
   background: linear-gradient(145deg, rgba(24, 165, 88, 0.2), rgba(7, 28, 64, 0.88));
 }
 
-.strategyCard p {
+.effectivenessCard {
+  background: linear-gradient(145deg, rgba(247, 201, 72, 0.18), rgba(11, 78, 162, 0.28), rgba(7, 28, 64, 0.9));
+}
+
+.strategyCard p,
+.effectivenessCard p {
   margin: 16px 0 0;
   color: var(--wc-muted);
 }
