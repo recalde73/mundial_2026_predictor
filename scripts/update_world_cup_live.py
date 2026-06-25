@@ -73,12 +73,15 @@ def find_fixture(
     match_date: date,
     home_team: str,
     away_team: str,
-) -> tuple[str, str, str] | None:
+) -> tuple[tuple[str, str, str], bool] | None:
     for date_offset in (0, -1, 1):
         fixture_date = (match_date + timedelta(days=date_offset)).isoformat()
         fixture = fixtures.get((fixture_date, home_team, away_team))
         if fixture:
-            return fixture
+            return fixture, False
+        fixture = fixtures.get((fixture_date, away_team, home_team))
+        if fixture:
+            return fixture, True
     return None
 
 
@@ -128,21 +131,26 @@ def fetch_completed_results(fixtures: dict[tuple[str, str, str], tuple[str, str,
 
             home_team = normalize_team_name(home["team"]["displayName"])
             away_team = normalize_team_name(away["team"]["displayName"])
-            fixture = find_fixture(fixtures, match_date, home_team, away_team)
-            if not fixture:
+            fixture_match = find_fixture(fixtures, match_date, home_team, away_team)
+            if not fixture_match:
                 print(
                     "Skipping ESPN result not found in raw fixtures: "
                     f"{match_date.isoformat()} {home['team']['displayName']} vs {away['team']['displayName']}"
                 )
                 continue
+            fixture, reverse_score = fixture_match
+            home_score = int(home["score"])
+            away_score = int(away["score"])
+            if reverse_score:
+                home_score, away_score = away_score, home_score
 
             completed_results.append(
                 {
                     "date": fixture[0],
                     "home_team": fixture[1],
                     "away_team": fixture[2],
-                    "home_score": str(int(home["score"])),
-                    "away_score": str(int(away["score"])),
+                    "home_score": str(home_score),
+                    "away_score": str(away_score),
                 }
             )
     return completed_results
