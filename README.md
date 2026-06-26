@@ -77,6 +77,8 @@ La auditoria contra el roadmap inicial esta en `docs/ROADMAP_STATUS.md`.
 
 El flujo para actualizar predicciones durante el torneo esta en `docs/ACTUALIZACION_DURANTE_TORNEO.md`.
 
+La estrategia dinamica de picks esta documentada en `docs/ESTRATEGIA_DINAMICA_DE_PICKS.md`.
+
 ## Ejemplo Rapido
 
 ```bash

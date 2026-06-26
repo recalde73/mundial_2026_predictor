@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from itertools import product
+from math import comb
 from pathlib import Path
 
 import pandas as pd
@@ -31,6 +32,31 @@ ALREADY_QUALIFIED_ADVANCING_SLOTS = 2
 ALREADY_QUALIFIED_ATTACK_MULTIPLIER = 0.88
 ALREADY_QUALIFIED_DEFENSE_MULTIPLIER = 1.08
 ALREADY_QUALIFIED_DRAW_PROBABILITY_MULTIPLIER = 1.08
+THIRD_PLACE_ADVANCING_SLOTS_FOR_ELIMINATION = 3
+DEFAULT_RISK_PROFILE = "aggressive"
+VALID_RISK_PROFILES = {"conservative", "balanced", "aggressive", "desperation"}
+MIN_DYNAMIC_GOAL_INFLATION = 0.85
+MAX_DYNAMIC_GOAL_INFLATION = 1.50
+
+COMPETITIVE_CONTEXT_COLUMNS = [
+    "date",
+    "home_team",
+    "away_team",
+    "group",
+    "is_last_group_match",
+    "home_needs_win",
+    "away_needs_win",
+    "home_draw_is_enough",
+    "away_draw_is_enough",
+    "home_already_qualified",
+    "away_already_qualified",
+    "home_eliminated",
+    "away_eliminated",
+    "home_goal_difference_pressure",
+    "away_goal_difference_pressure",
+    "match_pressure_score",
+    "group_scenario_volatility",
+]
 
 
 @dataclass(frozen=True)
@@ -197,6 +223,12 @@ def _add_standing_result(
 ) -> None:
     standings[home_team]["played"] += 1
     standings[away_team]["played"] += 1
+    standings[home_team]["goals_for"] += home_score
+    standings[home_team]["goals_against"] += away_score
+    standings[home_team]["goal_difference"] += home_score - away_score
+    standings[away_team]["goals_for"] += away_score
+    standings[away_team]["goals_against"] += home_score
+    standings[away_team]["goal_difference"] += away_score - home_score
     if home_score > away_score:
         standings[home_team]["points"] += 3
     elif home_score < away_score:
@@ -204,6 +236,10 @@ def _add_standing_result(
     else:
         standings[home_team]["points"] += 1
         standings[away_team]["points"] += 1
+
+
+def _empty_standing_record() -> dict[str, int]:
+    return {"played": 0, "points": 0, "goals_for": 0, "goals_against": 0, "goal_difference": 0}
 
 
 def _has_clinched_advancing_slot(
@@ -228,6 +264,600 @@ def _has_clinched_advancing_slot(
             return False
 
     return True
+
+
+def _can_reach_advancing_slot(
+    team: str,
+    group_teams: set[str],
+    standings: dict[str, dict[str, int]],
+    remaining_matches: list[tuple[str, str]],
+    advancing_slots: int,
+) -> bool:
+    current_points = {candidate: standings[candidate]["points"] for candidate in group_teams}
+    outcomes = ((3, 0), (1, 1), (0, 3))
+
+    for scenario in product(outcomes, repeat=len(remaining_matches)):
+        scenario_points = current_points.copy()
+        for (home_team, away_team), (home_points, away_points) in zip(remaining_matches, scenario):
+            scenario_points[home_team] += home_points
+            scenario_points[away_team] += away_points
+
+        team_points = scenario_points[team]
+        teams_strictly_above = sum(points > team_points for points in scenario_points.values())
+        if teams_strictly_above < advancing_slots:
+            return True
+
+    return False
+
+
+def _with_current_match_points(
+    standings: dict[str, dict[str, int]],
+    home_team: str,
+    away_team: str,
+    home_points: int,
+    away_points: int,
+) -> dict[str, dict[str, int]]:
+    adjusted = {team: dict(record) for team, record in standings.items()}
+    adjusted[home_team]["points"] += home_points
+    adjusted[away_team]["points"] += away_points
+    return adjusted
+
+
+def _remaining_after_current_match(
+    remaining_matches: list[tuple[str, str]],
+    current_match: tuple[str, str],
+) -> list[tuple[str, str]]:
+    remaining = list(remaining_matches)
+    try:
+        remaining.remove(current_match)
+    except ValueError:
+        return remaining
+    return remaining
+
+
+def _result_clinches_advancing_slot(
+    team: str,
+    group_teams: set[str],
+    standings: dict[str, dict[str, int]],
+    current_match: tuple[str, str],
+    remaining_matches: list[tuple[str, str]],
+    result_points: tuple[int, int],
+    advancing_slots: int,
+) -> bool:
+    home_team, away_team = current_match
+    adjusted = _with_current_match_points(
+        standings,
+        home_team,
+        away_team,
+        result_points[0],
+        result_points[1],
+    )
+    return _has_clinched_advancing_slot(
+        team,
+        group_teams,
+        adjusted,
+        _remaining_after_current_match(remaining_matches, current_match),
+        advancing_slots,
+    )
+
+
+def _result_can_reach_slot(
+    team: str,
+    group_teams: set[str],
+    standings: dict[str, dict[str, int]],
+    current_match: tuple[str, str],
+    remaining_matches: list[tuple[str, str]],
+    result_points: tuple[int, int],
+    advancing_slots: int,
+) -> bool:
+    home_team, away_team = current_match
+    adjusted = _with_current_match_points(
+        standings,
+        home_team,
+        away_team,
+        result_points[0],
+        result_points[1],
+    )
+    return _can_reach_advancing_slot(
+        team,
+        group_teams,
+        adjusted,
+        _remaining_after_current_match(remaining_matches, current_match),
+        advancing_slots,
+    )
+
+
+def _group_scenario_volatility(
+    group_teams: set[str],
+    standings: dict[str, dict[str, int]],
+    remaining_matches: list[tuple[str, str]],
+    advancing_slots: int,
+) -> float:
+    if len(group_teams) <= advancing_slots:
+        return 0.0
+
+    current_points = {team: standings[team]["points"] for team in group_teams}
+    outcomes = ((3, 0), (1, 1), (0, 3))
+    top_sets: set[tuple[str, ...]] = set()
+
+    for scenario in product(outcomes, repeat=len(remaining_matches)):
+        scenario_points = current_points.copy()
+        for (home_team, away_team), (home_points, away_points) in zip(remaining_matches, scenario):
+            scenario_points[home_team] += home_points
+            scenario_points[away_team] += away_points
+        ranked = sorted(
+            group_teams,
+            key=lambda team: (
+                scenario_points[team],
+                standings[team]["goal_difference"],
+                standings[team]["goals_for"],
+                team,
+            ),
+            reverse=True,
+        )
+        top_sets.add(tuple(sorted(ranked[:advancing_slots])))
+
+    max_sets = max(1, comb(len(group_teams), advancing_slots))
+    if max_sets == 1:
+        return 0.0
+    return min(1.0, (len(top_sets) - 1) / (max_sets - 1))
+
+
+def _team_goal_difference_pressure(
+    team: str,
+    group_teams: set[str],
+    standings: dict[str, dict[str, int]],
+    already_qualified: bool,
+    eliminated: bool,
+) -> bool:
+    if already_qualified or eliminated:
+        return False
+
+    team_points = standings[team]["points"]
+    nearby_teams = [
+        other
+        for other in group_teams
+        if other != team and abs(standings[other]["points"] - team_points) <= 3
+    ]
+    tied_or_near_cutoff = len(nearby_teams) >= 2
+    weak_tiebreaker = standings[team]["goal_difference"] <= 1
+    return tied_or_near_cutoff and weak_tiebreaker
+
+
+def _match_pressure_score(context: dict[str, object]) -> float:
+    pressure = 0.0
+    pressure += 0.28 if bool(context["home_needs_win"]) else 0.0
+    pressure += 0.28 if bool(context["away_needs_win"]) else 0.0
+    pressure += 0.14 if bool(context["home_goal_difference_pressure"]) else 0.0
+    pressure += 0.14 if bool(context["away_goal_difference_pressure"]) else 0.0
+    pressure += 0.16 * float(context["group_scenario_volatility"])
+    if bool(context["home_already_qualified"]) and bool(context["away_already_qualified"]):
+        pressure -= 0.40
+    if bool(context["home_draw_is_enough"]) or bool(context["away_draw_is_enough"]):
+        pressure -= 0.18
+    if bool(context["home_eliminated"]) and bool(context["away_eliminated"]):
+        pressure -= 0.24
+    return min(1.0, max(0.0, pressure))
+
+
+def _empty_competitive_context() -> pd.DataFrame:
+    return pd.DataFrame(columns=COMPETITIVE_CONTEXT_COLUMNS)
+
+
+def _build_competitive_context_map(
+    competitive_context: pd.DataFrame | None,
+) -> dict[tuple[str, str, str], dict[str, object]]:
+    if competitive_context is None or competitive_context.empty:
+        return {}
+
+    contexts: dict[tuple[str, str, str], dict[str, object]] = {}
+    for row in competitive_context.itertuples(index=False):
+        key = _fixture_key(row.date, str(row.home_team), str(row.away_team))
+        contexts[key] = {column: getattr(row, column) for column in COMPETITIVE_CONTEXT_COLUMNS}
+    return contexts
+
+
+def _default_competitive_context(date: object, home_team: str, away_team: str) -> dict[str, object]:
+    return {
+        "date": date,
+        "home_team": home_team,
+        "away_team": away_team,
+        "group": "",
+        "is_last_group_match": False,
+        "home_needs_win": False,
+        "away_needs_win": False,
+        "home_draw_is_enough": False,
+        "away_draw_is_enough": False,
+        "home_already_qualified": False,
+        "away_already_qualified": False,
+        "home_eliminated": False,
+        "away_eliminated": False,
+        "home_goal_difference_pressure": False,
+        "away_goal_difference_pressure": False,
+        "match_pressure_score": 0.0,
+        "group_scenario_volatility": 0.0,
+    }
+
+
+def build_competitive_context(
+    completed_results: pd.DataFrame,
+    fixtures: pd.DataFrame,
+    tournament: str = "FIFA World Cup",
+    start_date: str = "2026-06-01",
+    advancing_slots: int = ALREADY_QUALIFIED_ADVANCING_SLOTS,
+) -> pd.DataFrame:
+    """Infer group incentives before each pending fixture."""
+    if fixtures.empty:
+        return _empty_competitive_context()
+
+    completed = completed_results[
+        (completed_results["tournament"] == tournament)
+        & (completed_results["date"] >= pd.Timestamp(start_date))
+    ].copy()
+    pending = fixtures[
+        (fixtures["tournament"] == tournament)
+        & (fixtures["date"] >= pd.Timestamp(start_date))
+    ].copy()
+    if pending.empty:
+        return _empty_competitive_context()
+
+    columns = ["date", "home_team", "away_team", "tournament", "home_score", "away_score"]
+    schedule = pd.concat([completed.loc[:, columns], pending.loc[:, columns]], ignore_index=True)
+    group_by_team = _infer_group_map(schedule)
+    teams_by_group: defaultdict[str, set[str]] = defaultdict(set)
+    remaining_matches_by_group: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+    total_matches_by_team: defaultdict[str, int] = defaultdict(int)
+
+    for match in schedule.itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        group = group_by_team.get(home_team)
+        if group is None or group != group_by_team.get(away_team):
+            continue
+        teams_by_group[group].update((home_team, away_team))
+        total_matches_by_team[home_team] += 1
+        total_matches_by_team[away_team] += 1
+
+    for match in pending.itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        group = group_by_team.get(home_team)
+        if group is None or group != group_by_team.get(away_team):
+            continue
+        remaining_matches_by_group[group].append((home_team, away_team))
+
+    standings: defaultdict[str, dict[str, int]] = defaultdict(_empty_standing_record)
+    for match in completed.sort_values("date").itertuples(index=False):
+        if group_by_team.get(str(match.home_team)) != group_by_team.get(str(match.away_team)):
+            continue
+        _add_standing_result(
+            standings,
+            str(match.home_team),
+            str(match.away_team),
+            int(match.home_score),
+            int(match.away_score),
+        )
+
+    rows: list[dict[str, object]] = []
+    for match in pending.sort_values("date").itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        current_match = (home_team, away_team)
+        group = group_by_team.get(home_team, "")
+        group_teams = teams_by_group[group]
+        remaining_matches = remaining_matches_by_group[group]
+        volatility = _group_scenario_volatility(group_teams, standings, remaining_matches, advancing_slots)
+
+        row = _default_competitive_context(match.date, home_team, away_team)
+        row["group"] = group
+        row["is_last_group_match"] = (
+            standings[home_team]["played"] == total_matches_by_team[home_team] - 1
+            and standings[away_team]["played"] == total_matches_by_team[away_team] - 1
+        )
+        row["group_scenario_volatility"] = volatility
+
+        for side, team, draw_points, loss_points in (
+            ("home", home_team, (1, 1), (0, 3)),
+            ("away", away_team, (1, 1), (3, 0)),
+        ):
+            already_qualified = _has_clinched_advancing_slot(
+                team,
+                group_teams,
+                standings,
+                remaining_matches,
+                advancing_slots,
+            )
+            eliminated = not _can_reach_advancing_slot(
+                team,
+                group_teams,
+                standings,
+                remaining_matches,
+                THIRD_PLACE_ADVANCING_SLOTS_FOR_ELIMINATION,
+            )
+            draw_is_enough = False
+            if not already_qualified and not eliminated:
+                draw_is_enough = _result_clinches_advancing_slot(
+                    team,
+                    group_teams,
+                    standings,
+                    current_match,
+                    remaining_matches,
+                    draw_points,
+                    advancing_slots,
+                )
+            can_reach_after_loss = _result_can_reach_slot(
+                team,
+                group_teams,
+                standings,
+                current_match,
+                remaining_matches,
+                loss_points,
+                THIRD_PLACE_ADVANCING_SLOTS_FOR_ELIMINATION,
+            )
+            needs_win = (
+                bool(row["is_last_group_match"])
+                and not already_qualified
+                and not eliminated
+                and not draw_is_enough
+                and not can_reach_after_loss
+            )
+            goal_difference_pressure = _team_goal_difference_pressure(
+                team,
+                group_teams,
+                standings,
+                already_qualified,
+                eliminated,
+            ) or (bool(row["is_last_group_match"]) and not already_qualified and not eliminated and not draw_is_enough)
+
+            row[f"{side}_needs_win"] = needs_win
+            row[f"{side}_draw_is_enough"] = draw_is_enough
+            row[f"{side}_already_qualified"] = already_qualified
+            row[f"{side}_eliminated"] = eliminated
+            row[f"{side}_goal_difference_pressure"] = goal_difference_pressure
+
+        row["match_pressure_score"] = _match_pressure_score(row)
+        rows.append(row)
+
+    if not rows:
+        return _empty_competitive_context()
+    return pd.DataFrame(rows).loc[:, COMPETITIVE_CONTEXT_COLUMNS].reset_index(drop=True)
+
+
+def _dynamic_goal_inflation(
+    base_goal_inflation: float,
+    context: dict[str, object],
+    elo_diff: float,
+) -> tuple[float, str]:
+    value = base_goal_inflation
+    reasons: list[str] = []
+
+    both_already_qualified = bool(context["home_already_qualified"]) and bool(context["away_already_qualified"])
+    both_eliminated = bool(context["home_eliminated"]) and bool(context["away_eliminated"])
+    any_draw_is_enough = bool(context["home_draw_is_enough"]) or bool(context["away_draw_is_enough"])
+    both_need_win = bool(context["home_needs_win"]) and bool(context["away_needs_win"])
+    any_need_win = bool(context["home_needs_win"]) or bool(context["away_needs_win"])
+    any_goal_difference_pressure = bool(context["home_goal_difference_pressure"]) or bool(
+        context["away_goal_difference_pressure"]
+    )
+    volatility = float(context["group_scenario_volatility"])
+    strong_favorite = abs(elo_diff) >= 250
+
+    closed_context = both_already_qualified or any_draw_is_enough or both_eliminated
+    if both_already_qualified:
+        value = min(value, 1.05)
+        reasons.append("both qualified: lower tempo")
+    elif both_eliminated:
+        value = min(value, 1.12)
+        reasons.append("both eliminated: lower competitive edge")
+    elif any_draw_is_enough:
+        value = min(value, 1.10)
+        reasons.append("draw useful: closed incentives")
+
+    if both_need_win and not closed_context:
+        value = max(value, 1.45)
+        reasons.append("both need win")
+    elif any_need_win and not closed_context:
+        value = max(value, 1.32)
+        reasons.append("one side needs win")
+
+    if any_goal_difference_pressure and not closed_context:
+        value = max(value, 1.35)
+        reasons.append("goal-difference pressure")
+    if volatility >= 0.65 and not closed_context:
+        value = max(value, 1.35)
+        reasons.append("volatile group scenario")
+    if strong_favorite and not closed_context:
+        value = max(value, 1.30)
+        reasons.append("strong favorite mismatch")
+    if bool(context["is_last_group_match"]) and float(context["match_pressure_score"]) <= 0.20:
+        value = min(value, 1.15)
+        reasons.append("low-pressure final group match")
+
+    value = min(MAX_DYNAMIC_GOAL_INFLATION, max(MIN_DYNAMIC_GOAL_INFLATION, value))
+    if not reasons:
+        reasons.append("baseline live scoring pace")
+    return value, "; ".join(reasons)
+
+
+def _scoreline_result(scoreline: tuple[int, int]) -> str:
+    if scoreline[0] > scoreline[1]:
+        return "home"
+    if scoreline[0] < scoreline[1]:
+        return "away"
+    return "draw"
+
+
+def _scoreline_text(scoreline: tuple[int, int]) -> str:
+    return f"{scoreline[0]}-{scoreline[1]}"
+
+
+def _result_probabilities_from_scorelines(probabilities: dict[tuple[int, int], float]) -> dict[str, float]:
+    return {
+        "home": sum(probability for scoreline, probability in probabilities.items() if _scoreline_result(scoreline) == "home"),
+        "draw": sum(probability for scoreline, probability in probabilities.items() if _scoreline_result(scoreline) == "draw"),
+        "away": sum(probability for scoreline, probability in probabilities.items() if _scoreline_result(scoreline) == "away"),
+    }
+
+
+def _estimate_pick_popularity(
+    scoreline: tuple[int, int],
+    adjusted_probabilities: dict[tuple[int, int], float],
+    result_probabilities: dict[str, float],
+) -> float:
+    common_scoreline_prior = {
+        (1, 0): 0.78,
+        (2, 0): 0.72,
+        (2, 1): 0.70,
+        (0, 1): 0.66,
+        (0, 2): 0.62,
+        (1, 2): 0.62,
+        (1, 1): 0.68,
+        (0, 0): 0.40,
+    }
+    max_scoreline_probability = max(adjusted_probabilities.values())
+    relative_scoreline_probability = adjusted_probabilities.get(scoreline, 0.0) / max_scoreline_probability
+    result = _scoreline_result(scoreline)
+    favorite_result_probability = max(result_probabilities.values())
+    result_component = result_probabilities[result]
+    if result_probabilities[result] < favorite_result_probability:
+        result_component *= 0.70
+    total_goals = sum(scoreline)
+    high_total_penalty = max(0.35, 1.0 - 0.08 * max(0, total_goals - 2))
+    popularity = (
+        0.45 * relative_scoreline_probability
+        + 0.35 * result_component
+        + 0.20 * common_scoreline_prior.get(scoreline, 0.24)
+    ) * high_total_penalty
+    return min(0.90, max(0.05, popularity))
+
+
+def _upside_multiplier(scoreline: tuple[int, int], result_probabilities: dict[str, float]) -> float:
+    total_goals = sum(scoreline)
+    result = _scoreline_result(scoreline)
+    favorite_result = max(result_probabilities, key=result_probabilities.get)
+    underdog_bonus = 0.12 if result != favorite_result else 0.0
+    draw_bonus = 0.08 if result == "draw" and result_probabilities["draw"] >= 0.22 else 0.0
+    value = 1.0 + 0.06 * total_goals + 0.04 * abs(scoreline[0] - scoreline[1]) + underdog_bonus + draw_bonus
+    return min(1.55, max(1.0, value))
+
+
+def _pick_metric(
+    scoreline: tuple[int, int],
+    adjusted_probabilities: dict[tuple[int, int], float],
+    result_probabilities: dict[str, float],
+) -> dict[str, float]:
+    pick_expected_points = expected_points(scoreline, adjusted_probabilities)
+    estimated_popularity = _estimate_pick_popularity(scoreline, adjusted_probabilities, result_probabilities)
+    differential_multiplier = min(2.00, 1.0 + (1.0 - estimated_popularity) * 0.85)
+    upside_multiplier = _upside_multiplier(scoreline, result_probabilities)
+    return {
+        "expected_points": pick_expected_points,
+        "estimated_pick_popularity": estimated_popularity,
+        "differential_multiplier": differential_multiplier,
+        "upside_multiplier": upside_multiplier,
+        "strategic_pick_value": pick_expected_points * differential_multiplier * upside_multiplier,
+    }
+
+
+def _candidate_pool(
+    max_candidate_goals: int = 6,
+    max_total_candidate_goals: int | None = DEFAULT_MAX_TOTAL_CANDIDATE_GOALS,
+) -> tuple[tuple[int, int], ...]:
+    candidates = candidate_scorelines(max_candidate_goals)
+    if max_total_candidate_goals is None:
+        return candidates
+    return tuple(candidate for candidate in candidates if sum(candidate) <= max_total_candidate_goals)
+
+
+def _risk_profile_picks(
+    probabilities: dict[tuple[int, int], float],
+    max_total_candidate_goals: int | None,
+    draw_probability_multiplier: float,
+    closed_context: bool = False,
+) -> dict[str, dict[str, object]]:
+    adjusted_probabilities = adjust_draw_probabilities(
+        probabilities,
+        draw_probability_multiplier=draw_probability_multiplier,
+    )
+    result_probabilities = _result_probabilities_from_scorelines(adjusted_probabilities)
+    favorite_result = max(result_probabilities, key=result_probabilities.get)
+
+    conservative_candidates = [
+        candidate
+        for candidate in _candidate_pool(max_total_candidate_goals=max_total_candidate_goals)
+        if _scoreline_result(candidate) == favorite_result
+    ]
+    conservative_pick = max(
+        conservative_candidates,
+        key=lambda candidate: adjusted_probabilities.get(candidate, 0.0),
+    )
+    balanced_pick, _balanced_value = rank_predictions(
+        probabilities,
+        max_total_candidate_goals=max_total_candidate_goals,
+        draw_probability_multiplier=draw_probability_multiplier,
+        limit=1,
+    )[0]
+
+    aggressive_candidates = _candidate_pool(
+        max_total_candidate_goals=max_total_candidate_goals if closed_context else 5
+    )
+    desperation_candidates = _candidate_pool(max_total_candidate_goals=5 if closed_context else None)
+    aggressive_pick = max(
+        aggressive_candidates,
+        key=lambda candidate: (
+            _pick_metric(candidate, adjusted_probabilities, result_probabilities)["expected_points"]
+            * _pick_metric(candidate, adjusted_probabilities, result_probabilities)["upside_multiplier"]
+            * (_pick_metric(candidate, adjusted_probabilities, result_probabilities)["differential_multiplier"] ** 0.45)
+        ),
+    )
+    desperation_pick = max(
+        desperation_candidates,
+        key=lambda candidate: _pick_metric(candidate, adjusted_probabilities, result_probabilities)["strategic_pick_value"],
+    )
+
+    return {
+        "conservative": {"scoreline": conservative_pick, **_pick_metric(conservative_pick, adjusted_probabilities, result_probabilities)},
+        "balanced": {"scoreline": balanced_pick, **_pick_metric(balanced_pick, adjusted_probabilities, result_probabilities)},
+        "aggressive": {"scoreline": aggressive_pick, **_pick_metric(aggressive_pick, adjusted_probabilities, result_probabilities)},
+        "desperation": {"scoreline": desperation_pick, **_pick_metric(desperation_pick, adjusted_probabilities, result_probabilities)},
+    }
+
+
+def _confidence_level(result_probabilities: dict[str, float], context: dict[str, object]) -> str:
+    favorite_probability = max(result_probabilities.values())
+    volatility = float(context["group_scenario_volatility"])
+    if favorite_probability >= 0.66 and volatility <= 0.35:
+        return "high"
+    if favorite_probability >= 0.52 and volatility <= 0.65:
+        return "medium"
+    return "low"
+
+
+def _error_risk(result_probabilities: dict[str, float], context: dict[str, object]) -> str:
+    favorite_probability = max(result_probabilities.values())
+    if float(context["group_scenario_volatility"]) >= 0.70 or favorite_probability < 0.45:
+        return "high"
+    if favorite_probability < 0.58 or bool(context["home_draw_is_enough"]) or bool(context["away_draw_is_enough"]):
+        return "medium"
+    return "low"
+
+
+def _context_reasons(context: dict[str, object], dynamic_goal_inflation_reason: str) -> tuple[str, str]:
+    reasons = [dynamic_goal_inflation_reason]
+    alerts: list[str] = []
+    if bool(context["home_already_qualified"]) and bool(context["away_already_qualified"]):
+        alerts.append("both_already_qualified")
+    elif bool(context["home_already_qualified"]) or bool(context["away_already_qualified"]):
+        alerts.append("one_team_already_qualified")
+    if bool(context["home_draw_is_enough"]) or bool(context["away_draw_is_enough"]):
+        alerts.append("draw_enough_for_one_team")
+    if bool(context["home_goal_difference_pressure"]) or bool(context["away_goal_difference_pressure"]):
+        alerts.append("goal_difference_pressure")
+    if float(context["group_scenario_volatility"]) >= 0.65:
+        alerts.append("high_group_volatility")
+    if bool(context["home_eliminated"]) or bool(context["away_eliminated"]):
+        alerts.append("elimination_context")
+    return " | ".join(reasons), ",".join(alerts)
 
 
 def build_already_qualified_context_overrides(
@@ -277,7 +907,7 @@ def build_already_qualified_context_overrides(
             continue
         remaining_matches_by_group[group].append((home_team, away_team))
 
-    standings: defaultdict[str, dict[str, int]] = defaultdict(lambda: {"played": 0, "points": 0})
+    standings: defaultdict[str, dict[str, int]] = defaultdict(_empty_standing_record)
     for match in completed.sort_values("date").itertuples(index=False):
         if group_by_team.get(str(match.home_team)) != group_by_team.get(str(match.away_team)):
             continue
@@ -503,20 +1133,33 @@ def predict_fixture_picks(
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
     goal_inflation: float = DEFAULT_GOAL_INFLATION,
     context_overrides: pd.DataFrame | None = None,
+    competitive_context: pd.DataFrame | None = None,
+    dynamic_goal_inflation_enabled: bool = True,
+    risk_profile: str = DEFAULT_RISK_PROFILE,
 ) -> pd.DataFrame:
     """Predict expected goals and recommended picks for future fixtures."""
+    if risk_profile not in VALID_RISK_PROFILES:
+        raise ValueError(f"risk_profile must be one of {sorted(VALID_RISK_PROFILES)}")
+
     predictions = predict_expected_goals(model, fixture_features)
     context_by_fixture = _build_context_override_map(context_overrides)
+    competitive_context_by_fixture = _build_competitive_context_map(competitive_context)
     rows: list[dict[str, object]] = []
 
     for match in predictions.itertuples(index=False):
+        key = _fixture_key(match.date, str(match.home_team), str(match.away_team))
         context = _context_adjustment_for(
             context_by_fixture,
             match.date,
             str(match.home_team),
             str(match.away_team),
         )
-        context_applied = _fixture_key(match.date, str(match.home_team), str(match.away_team)) in context_by_fixture
+        competitive = competitive_context_by_fixture.get(
+            key,
+            _default_competitive_context(match.date, str(match.home_team), str(match.away_team)),
+        )
+        competitive_context_applied = key in competitive_context_by_fixture
+        context_applied = key in context_by_fixture
         model_home_expected_goals = float(match.home_expected_goals)
         model_away_expected_goals = float(match.away_expected_goals)
         context_home_expected_goals = max(
@@ -534,22 +1177,38 @@ def predict_fixture_picks(
         effective_draw_probability_multiplier = (
             draw_probability_multiplier * float(context["draw_probability_multiplier"])
         )
+        dynamic_goal_inflation, dynamic_goal_inflation_reason = (
+            _dynamic_goal_inflation(goal_inflation, competitive, float(match.elo_diff))
+            if dynamic_goal_inflation_enabled and competitive_context_applied
+            else (goal_inflation, "fixed goal inflation")
+        )
         strategy_home_expected_goals, strategy_away_expected_goals = apply_goal_inflation(
             context_home_expected_goals,
             context_away_expected_goals,
-            goal_inflation=goal_inflation,
+            goal_inflation=dynamic_goal_inflation,
         )
+        market_adjusted_home_expected_goals = strategy_home_expected_goals
+        market_adjusted_away_expected_goals = strategy_away_expected_goals
         probabilities = scoreline_probabilities(
-            home_expected_goals=strategy_home_expected_goals,
-            away_expected_goals=strategy_away_expected_goals,
+            home_expected_goals=market_adjusted_home_expected_goals,
+            away_expected_goals=market_adjusted_away_expected_goals,
             max_goals=6,
         )
-        pick, pick_expected_points = rank_predictions(
+        closed_pick_context = (
+            (bool(competitive["home_already_qualified"]) and bool(competitive["away_already_qualified"]))
+            or bool(competitive["home_draw_is_enough"])
+            or bool(competitive["away_draw_is_enough"])
+            or (bool(competitive["home_eliminated"]) and bool(competitive["away_eliminated"]))
+        )
+        risk_picks = _risk_profile_picks(
             probabilities,
             max_total_candidate_goals=max_total_candidate_goals,
             draw_probability_multiplier=effective_draw_probability_multiplier,
-            limit=1,
-        )[0]
+            closed_context=closed_pick_context,
+        )
+        selected_pick = risk_picks[risk_profile]
+        pick = selected_pick["scoreline"]
+        pick_expected_points = float(selected_pick["expected_points"])
         home_win_probability = sum(
             probability
             for (home_goals, away_goals), probability in probabilities.items()
@@ -573,6 +1232,14 @@ def predict_fixture_picks(
             draw_probability >= COMPETITIVE_DRAW_PROBABILITY_THRESHOLD
             and abs(home_win_probability - away_win_probability) <= COMPETITIVE_DRAW_RESULT_MARGIN
         )
+        result_probabilities = {
+            "home": home_win_probability,
+            "draw": draw_probability,
+            "away": away_win_probability,
+        }
+        confidence_level = _confidence_level(result_probabilities, competitive)
+        error_risk = _error_risk(result_probabilities, competitive)
+        main_reasons, alert_flags = _context_reasons(competitive, dynamic_goal_inflation_reason)
 
         rows.append(
             {
@@ -580,6 +1247,7 @@ def predict_fixture_picks(
                 "tournament": match.tournament,
                 "home_team": match.home_team,
                 "away_team": match.away_team,
+                "group": str(competitive["group"]),
                 "model_home_expected_goals": model_home_expected_goals,
                 "model_away_expected_goals": model_away_expected_goals,
                 "context_home_expected_goals": context_home_expected_goals,
@@ -592,14 +1260,65 @@ def predict_fixture_picks(
                 "context_applied": context_applied,
                 "context_confidence": str(context["confidence"]),
                 "context_notes": str(context["notes"]),
+                "strategy_home_expected_goals": strategy_home_expected_goals,
+                "strategy_away_expected_goals": strategy_away_expected_goals,
+                "market_adjusted_home_expected_goals": market_adjusted_home_expected_goals,
+                "market_adjusted_away_expected_goals": market_adjusted_away_expected_goals,
                 "home_expected_goals": strategy_home_expected_goals,
                 "away_expected_goals": strategy_away_expected_goals,
                 "goal_inflation": goal_inflation,
+                "dynamic_goal_inflation": dynamic_goal_inflation,
+                "dynamic_goal_inflation_reason": dynamic_goal_inflation_reason,
                 "max_total_candidate_goals": max_total_candidate_goals,
                 "draw_probability_multiplier": effective_draw_probability_multiplier,
+                "is_last_group_match": bool(competitive["is_last_group_match"]),
+                "home_needs_win": bool(competitive["home_needs_win"]),
+                "away_needs_win": bool(competitive["away_needs_win"]),
+                "home_draw_is_enough": bool(competitive["home_draw_is_enough"]),
+                "away_draw_is_enough": bool(competitive["away_draw_is_enough"]),
+                "competitive_context_applied": competitive_context_applied,
+                "home_already_qualified": bool(competitive["home_already_qualified"]),
+                "away_already_qualified": bool(competitive["away_already_qualified"]),
+                "home_eliminated": bool(competitive["home_eliminated"]),
+                "away_eliminated": bool(competitive["away_eliminated"]),
+                "home_goal_difference_pressure": bool(competitive["home_goal_difference_pressure"]),
+                "away_goal_difference_pressure": bool(competitive["away_goal_difference_pressure"]),
+                "match_pressure_score": float(competitive["match_pressure_score"]),
+                "group_scenario_volatility": float(competitive["group_scenario_volatility"]),
                 "home_win_probability": home_win_probability,
                 "draw_probability": draw_probability,
                 "away_win_probability": away_win_probability,
+                "market_home_win_probability": pd.NA,
+                "market_draw_probability": pd.NA,
+                "market_away_win_probability": pd.NA,
+                "market_over_2_5_probability": pd.NA,
+                "market_under_2_5_probability": pd.NA,
+                "market_btts_yes_probability": pd.NA,
+                "market_btts_no_probability": pd.NA,
+                "home_market_edge": pd.NA,
+                "draw_market_edge": pd.NA,
+                "away_market_edge": pd.NA,
+                "market_disagreement_score": pd.NA,
+                "market_warning_flag": False,
+                "market_warning_reason": "",
+                "risk_profile": risk_profile,
+                "conservative_scoreline": _scoreline_text(risk_picks["conservative"]["scoreline"]),
+                "conservative_expected_points": float(risk_picks["conservative"]["expected_points"]),
+                "balanced_scoreline": _scoreline_text(risk_picks["balanced"]["scoreline"]),
+                "balanced_expected_points": float(risk_picks["balanced"]["expected_points"]),
+                "aggressive_scoreline": _scoreline_text(risk_picks["aggressive"]["scoreline"]),
+                "aggressive_expected_points": float(risk_picks["aggressive"]["expected_points"]),
+                "desperation_scoreline": _scoreline_text(risk_picks["desperation"]["scoreline"]),
+                "desperation_expected_points": float(risk_picks["desperation"]["expected_points"]),
+                "recommended_scoreline_by_risk": _scoreline_text(pick),
+                "estimated_pick_popularity": float(selected_pick["estimated_pick_popularity"]),
+                "differential_multiplier": float(selected_pick["differential_multiplier"]),
+                "upside_multiplier": float(selected_pick["upside_multiplier"]),
+                "strategic_pick_value": float(selected_pick["strategic_pick_value"]),
+                "confidence_level": confidence_level,
+                "error_risk": error_risk,
+                "main_reasons": main_reasons,
+                "alert_flags": alert_flags,
                 "recommended_home_score": pick[0],
                 "recommended_away_score": pick[1],
                 "recommended_scoreline": f"{pick[0]}-{pick[1]}",
@@ -626,6 +1345,8 @@ def train_final_model_and_predict_fixtures(
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
     goal_inflation: float = DEFAULT_GOAL_INFLATION,
     context_overrides: pd.DataFrame | None = None,
+    dynamic_goal_inflation_enabled: bool = True,
+    risk_profile: str = DEFAULT_RISK_PROFILE,
     qualified_context_enabled: bool = True,
     qualified_context_min_points: int = ALREADY_QUALIFIED_MIN_POINTS,
     qualified_context_advancing_slots: int = ALREADY_QUALIFIED_ADVANCING_SLOTS,
@@ -645,6 +1366,11 @@ def train_final_model_and_predict_fixtures(
         else None
     )
     combined_context = _combine_context_overrides(automatic_context, context_overrides)
+    competitive_context = build_competitive_context(
+        completed_results,
+        fixtures,
+        advancing_slots=qualified_context_advancing_slots,
+    )
     return predict_fixture_picks(
         model,
         fixture_features,
@@ -652,4 +1378,7 @@ def train_final_model_and_predict_fixtures(
         draw_probability_multiplier=draw_probability_multiplier,
         goal_inflation=goal_inflation,
         context_overrides=combined_context,
+        competitive_context=competitive_context,
+        dynamic_goal_inflation_enabled=dynamic_goal_inflation_enabled,
+        risk_profile=risk_profile,
     )

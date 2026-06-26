@@ -27,7 +27,7 @@ data/processed/world_cup_2026_top_scorer_predictions.csv
 3. Construir features previas a cada partido.
 4. Calcular Elo historico pre-partido.
 5. Entrenar modelo Poisson de goles esperados.
-6. Aplicar ajuste estrategico de goles para picks y simulaciones.
+6. Aplicar contexto competitivo e inflacion dinamica de goles para picks y simulaciones.
 7. Convertir goles esperados ajustados en probabilidades de marcadores.
 8. Seleccionar el pick que maximiza puntos esperados bajo reglas calibradas.
 9. Exportar predicciones del Mundial 2026.
@@ -131,15 +131,19 @@ La estrategia final actual no elige simplemente el marcador mas probable.
 Usa:
 
 - Modo live agresivo calibrado contra partidos reales del Mundial 2026 ya finalizados.
-- Inflacion estrategica de goles: 1.40.
+- Inflacion base de goles: 1.40, ajustada dinamicamente por contexto competitivo.
 - Maximo de goles totales candidatos: 4.
 - Multiplicador de empates: 1.00.
-- Optimizacion por puntos esperados segun reglas del juego
+- Optimizacion por puntos esperados segun reglas del juego.
+- Picks alternativos por perfil `conservative`, `balanced`, `aggressive` y `desperation`.
+- Valor estrategico del pick via `strategic_pick_value`, `estimated_pick_popularity`, `differential_multiplier` y `upside_multiplier`.
 - Alternativa de empate visible cuando el empate es competitivo, sin forzarla como pick principal
 
-El CSV de predicciones conserva los goles esperados crudos del modelo en `model_home_expected_goals` y `model_away_expected_goals`. Las columnas `home_expected_goals` y `away_expected_goals` son los goles esperados de estrategia usados para picks y simulaciones.
+El CSV de predicciones conserva los goles esperados crudos del modelo en `model_home_expected_goals` y `model_away_expected_goals`. Luego separa `context_*_expected_goals`, `strategy_*_expected_goals` y `market_adjusted_*_expected_goals`. Las columnas `home_expected_goals` y `away_expected_goals` siguen existiendo como alias compatible de la capa final usada para picks y simulaciones.
 
 Esto prioriza reaccionar al ritmo real de goles del torneo y habilita picks mas altos como `2-1`, `1-2`, `3-1`, `3-0`, `1-3` y `0-3` cuando el valor esperado lo justifica.
+
+Detalle de columnas y reglas: `docs/ESTRATEGIA_DINAMICA_DE_PICKS.md`.
 
 ## Comandos
 

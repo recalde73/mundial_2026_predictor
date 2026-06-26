@@ -3,6 +3,7 @@ from pytest import approx
 
 from worldcup_predictor.future import (
     build_already_qualified_context_overrides,
+    build_competitive_context,
     build_fixture_features,
     build_team_states,
     completed_matches,
@@ -207,3 +208,86 @@ def test_build_already_qualified_context_overrides_avoids_unclinched_team() -> N
     overrides = build_already_qualified_context_overrides(completed, fixtures, min_points=4)
 
     assert overrides.empty
+
+
+def test_build_competitive_context_adds_group_need_columns() -> None:
+    completed = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-11", "2026-06-11", "2026-06-18", "2026-06-18"]),
+            "home_team": ["A", "C", "A", "B"],
+            "away_team": ["B", "D", "C", "D"],
+            "home_score": [2, 1, 2, 1],
+            "away_score": [0, 0, 0, 0],
+            "tournament": ["FIFA World Cup"] * 4,
+        }
+    )
+    fixtures = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-25", "2026-06-25"]),
+            "home_team": ["A", "B"],
+            "away_team": ["D", "C"],
+            "home_score": [None, None],
+            "away_score": [None, None],
+            "tournament": ["FIFA World Cup"] * 2,
+        }
+    )
+
+    context = build_competitive_context(completed, fixtures)
+
+    assert len(context) == 2
+    assert "home_already_qualified" in context.columns
+    assert "match_pressure_score" in context.columns
+    assert context.loc[context["home_team"] == "A", "home_already_qualified"].iloc[0]
+
+
+def test_predict_fixture_picks_uses_dynamic_goal_inflation_and_risk_profiles() -> None:
+    fixture_features = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-25", "2026-06-25"]),
+            "home_team": ["Safe A", "Need A"],
+            "away_team": ["Safe B", "Need B"],
+            "tournament": ["FIFA World Cup", "FIFA World Cup"],
+            "neutral": [True, True],
+            "home_elo": [1800.0, 1800.0],
+            "away_elo": [1800.0, 1800.0],
+            "elo_diff": [0.0, 0.0],
+        }
+    )
+    competitive_context = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-25", "2026-06-25"]),
+            "home_team": ["Safe A", "Need A"],
+            "away_team": ["Safe B", "Need B"],
+            "group": ["Group 01", "Group 02"],
+            "is_last_group_match": [True, True],
+            "home_needs_win": [False, True],
+            "away_needs_win": [False, True],
+            "home_draw_is_enough": [False, False],
+            "away_draw_is_enough": [False, False],
+            "home_already_qualified": [True, False],
+            "away_already_qualified": [True, False],
+            "home_eliminated": [False, False],
+            "away_eliminated": [False, False],
+            "home_goal_difference_pressure": [False, True],
+            "away_goal_difference_pressure": [False, True],
+            "match_pressure_score": [0.0, 0.9],
+            "group_scenario_volatility": [0.0, 0.8],
+        }
+    )
+
+    predictions = predict_fixture_picks(
+        ConstantGoalModel(home_goals=1.0, away_goals=1.0),
+        fixture_features,
+        goal_inflation=1.4,
+        competitive_context=competitive_context,
+        risk_profile="aggressive",
+    )
+
+    safe_row = predictions.loc[predictions["home_team"] == "Safe A"].iloc[0]
+    need_row = predictions.loc[predictions["home_team"] == "Need A"].iloc[0]
+    assert safe_row.dynamic_goal_inflation == approx(1.05)
+    assert need_row.dynamic_goal_inflation == approx(1.45)
+    assert safe_row.strategy_home_expected_goals == approx(1.05)
+    assert need_row.strategy_home_expected_goals == approx(1.45)
+    assert safe_row.recommended_scoreline_by_risk == safe_row.recommended_scoreline
+    assert safe_row.strategic_pick_value > 0
