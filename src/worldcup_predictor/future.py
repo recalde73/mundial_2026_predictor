@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 
 import pandas as pd
@@ -9,6 +10,7 @@ import pandas as pd
 from worldcup_predictor.datasets import MatchRecord
 from worldcup_predictor.elo import EloConfig, expected_result, update_ratings
 from worldcup_predictor.modeling import BaselineGoalModel, fit_goal_model, predict_expected_goals
+from worldcup_predictor.overrides import CONTEXT_MULTIPLIER_COLUMNS, CONTEXT_TEXT_COLUMNS
 from worldcup_predictor.poisson import scoreline_probabilities
 from worldcup_predictor.recommender import (
     DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
@@ -24,6 +26,11 @@ from worldcup_predictor.scoring import candidate_scorelines, expected_points
 COMPETITIVE_DRAW_PROBABILITY_THRESHOLD = 0.26
 COMPETITIVE_DRAW_RESULT_MARGIN = 0.03
 MIN_CONTEXT_EXPECTED_GOALS = 0.05
+ALREADY_QUALIFIED_MIN_POINTS = 6
+ALREADY_QUALIFIED_ADVANCING_SLOTS = 2
+ALREADY_QUALIFIED_ATTACK_MULTIPLIER = 0.88
+ALREADY_QUALIFIED_DEFENSE_MULTIPLIER = 1.08
+ALREADY_QUALIFIED_DRAW_PROBABILITY_MULTIPLIER = 1.08
 
 
 @dataclass(frozen=True)
@@ -90,6 +97,249 @@ def _build_context_override_map(
             "notes": "" if pd.isna(getattr(row, "notes", "")) else str(getattr(row, "notes", "")),
         }
     return overrides
+
+
+def _empty_context_overrides() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "date",
+            "home_team",
+            "away_team",
+            *CONTEXT_MULTIPLIER_COLUMNS,
+            *CONTEXT_TEXT_COLUMNS,
+        ]
+    )
+
+
+def _combine_context_overrides(*context_frames: pd.DataFrame | None) -> pd.DataFrame:
+    combined: dict[tuple[str, str, str], dict[str, object]] = {}
+
+    for frame in context_frames:
+        if frame is None or frame.empty:
+            continue
+        for row in frame.itertuples(index=False):
+            key = _fixture_key(row.date, str(row.home_team), str(row.away_team))
+            context = combined.setdefault(
+                key,
+                {
+                    "date": row.date,
+                    "home_team": str(row.home_team),
+                    "away_team": str(row.away_team),
+                    "home_attack_multiplier": 1.0,
+                    "home_defense_multiplier": 1.0,
+                    "away_attack_multiplier": 1.0,
+                    "away_defense_multiplier": 1.0,
+                    "draw_probability_multiplier": 1.0,
+                    "confidence": [],
+                    "notes": [],
+                },
+            )
+
+            for column in CONTEXT_MULTIPLIER_COLUMNS:
+                context[column] = float(context[column]) * float(getattr(row, column, 1.0))
+
+            for column in CONTEXT_TEXT_COLUMNS:
+                value = getattr(row, column, "")
+                if pd.notna(value) and str(value).strip():
+                    context[column].append(str(value).strip())
+
+    if not combined:
+        return _empty_context_overrides()
+
+    rows: list[dict[str, object]] = []
+    for context in combined.values():
+        row = dict(context)
+        row["confidence"] = "; ".join(row["confidence"])
+        row["notes"] = " | ".join(row["notes"])
+        rows.append(row)
+
+    columns = ["date", "home_team", "away_team", *CONTEXT_MULTIPLIER_COLUMNS, *CONTEXT_TEXT_COLUMNS]
+    return pd.DataFrame(rows).loc[:, columns].sort_values("date").reset_index(drop=True)
+
+
+def _infer_group_map(matches: pd.DataFrame) -> dict[str, str]:
+    adjacency: dict[str, set[str]] = defaultdict(set)
+    first_seen: dict[str, pd.Timestamp] = {}
+
+    for match in matches.sort_values("date").itertuples(index=False):
+        adjacency[str(match.home_team)].add(str(match.away_team))
+        adjacency[str(match.away_team)].add(str(match.home_team))
+        first_seen.setdefault(str(match.home_team), match.date)
+        first_seen.setdefault(str(match.away_team), match.date)
+
+    visited: set[str] = set()
+    groups: list[list[str]] = []
+    for team in sorted(adjacency, key=lambda item: (first_seen[item], item)):
+        if team in visited:
+            continue
+        stack = [team]
+        component: list[str] = []
+        visited.add(team)
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            for neighbor in adjacency[current]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+        groups.append(sorted(component, key=lambda item: (first_seen[item], item)))
+
+    groups.sort(key=lambda group: min(first_seen[team] for team in group))
+    return {team: f"Group {index:02d}" for index, group in enumerate(groups, start=1) for team in group}
+
+
+def _add_standing_result(
+    standings: dict[str, dict[str, int]],
+    home_team: str,
+    away_team: str,
+    home_score: int,
+    away_score: int,
+) -> None:
+    standings[home_team]["played"] += 1
+    standings[away_team]["played"] += 1
+    if home_score > away_score:
+        standings[home_team]["points"] += 3
+    elif home_score < away_score:
+        standings[away_team]["points"] += 3
+    else:
+        standings[home_team]["points"] += 1
+        standings[away_team]["points"] += 1
+
+
+def _has_clinched_advancing_slot(
+    team: str,
+    group_teams: set[str],
+    standings: dict[str, dict[str, int]],
+    remaining_matches: list[tuple[str, str]],
+    advancing_slots: int,
+) -> bool:
+    current_points = {candidate: standings[candidate]["points"] for candidate in group_teams}
+    outcomes = ((3, 0), (1, 1), (0, 3))
+
+    for scenario in product(outcomes, repeat=len(remaining_matches)):
+        scenario_points = current_points.copy()
+        for (home_team, away_team), (home_points, away_points) in zip(remaining_matches, scenario):
+            scenario_points[home_team] += home_points
+            scenario_points[away_team] += away_points
+
+        team_points = scenario_points[team]
+        teams_level_or_above = sum(points >= team_points for points in scenario_points.values())
+        if teams_level_or_above > advancing_slots:
+            return False
+
+    return True
+
+
+def build_already_qualified_context_overrides(
+    completed_results: pd.DataFrame,
+    fixtures: pd.DataFrame,
+    tournament: str = "FIFA World Cup",
+    start_date: str = "2026-06-01",
+    min_points: int = ALREADY_QUALIFIED_MIN_POINTS,
+    advancing_slots: int = ALREADY_QUALIFIED_ADVANCING_SLOTS,
+) -> pd.DataFrame:
+    """Derive passive/rotation context for teams safe before their last group match."""
+    if fixtures.empty:
+        return _empty_context_overrides()
+
+    completed = completed_results[
+        (completed_results["tournament"] == tournament)
+        & (completed_results["date"] >= pd.Timestamp(start_date))
+    ].copy()
+    pending = fixtures[
+        (fixtures["tournament"] == tournament)
+        & (fixtures["date"] >= pd.Timestamp(start_date))
+    ].copy()
+    if pending.empty:
+        return _empty_context_overrides()
+
+    columns = ["date", "home_team", "away_team", "tournament", "home_score", "away_score"]
+    schedule = pd.concat([completed.loc[:, columns], pending.loc[:, columns]], ignore_index=True)
+    group_by_team = _infer_group_map(schedule)
+    teams_by_group: defaultdict[str, set[str]] = defaultdict(set)
+    remaining_matches_by_group: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+    total_matches_by_team: defaultdict[str, int] = defaultdict(int)
+    for match in schedule.itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        group = group_by_team.get(home_team)
+        if group is None or group != group_by_team.get(away_team):
+            continue
+        teams_by_group[group].update((home_team, away_team))
+        total_matches_by_team[home_team] += 1
+        total_matches_by_team[away_team] += 1
+
+    for match in pending.itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        group = group_by_team.get(home_team)
+        if group is None or group != group_by_team.get(away_team):
+            continue
+        remaining_matches_by_group[group].append((home_team, away_team))
+
+    standings: defaultdict[str, dict[str, int]] = defaultdict(lambda: {"played": 0, "points": 0})
+    for match in completed.sort_values("date").itertuples(index=False):
+        if group_by_team.get(str(match.home_team)) != group_by_team.get(str(match.away_team)):
+            continue
+        _add_standing_result(
+            standings,
+            str(match.home_team),
+            str(match.away_team),
+            int(match.home_score),
+            int(match.away_score),
+        )
+
+    rows: list[dict[str, object]] = []
+    for match in pending.sort_values("date").itertuples(index=False):
+        home_team = str(match.home_team)
+        away_team = str(match.away_team)
+        qualified_teams: list[str] = []
+        row = {
+            "date": match.date,
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_attack_multiplier": 1.0,
+            "home_defense_multiplier": 1.0,
+            "away_attack_multiplier": 1.0,
+            "away_defense_multiplier": 1.0,
+            "draw_probability_multiplier": 1.0,
+            "confidence": "medium",
+            "notes": "",
+        }
+
+        for side, team in (("home", home_team), ("away", away_team)):
+            team_standing = standings[team]
+            group = group_by_team.get(team)
+            is_last_group_match = team_standing["played"] == total_matches_by_team[team] - 1
+            has_clinched = (
+                group is not None
+                and team_standing["points"] >= min_points
+                and _has_clinched_advancing_slot(
+                    team,
+                    teams_by_group[group],
+                    standings,
+                    remaining_matches_by_group[group],
+                    advancing_slots,
+                )
+            )
+            if is_last_group_match and has_clinched:
+                row[f"{side}_attack_multiplier"] = ALREADY_QUALIFIED_ATTACK_MULTIPLIER
+                row[f"{side}_defense_multiplier"] = ALREADY_QUALIFIED_DEFENSE_MULTIPLIER
+                row["draw_probability_multiplier"] = ALREADY_QUALIFIED_DRAW_PROBABILITY_MULTIPLIER
+                qualified_teams.append(f"{team} ({team_standing['points']} pts)")
+
+        if qualified_teams:
+            row["notes"] = (
+                "Automatic qualified-team context: "
+                f"{', '.join(qualified_teams)} before final group match; "
+                "rotation and passive tempo expected."
+            )
+            rows.append(row)
+
+    if not rows:
+        return _empty_context_overrides()
+    columns = ["date", "home_team", "away_team", *CONTEXT_MULTIPLIER_COLUMNS, *CONTEXT_TEXT_COLUMNS]
+    return pd.DataFrame(rows).loc[:, columns].reset_index(drop=True)
 
 
 def _context_adjustment_for(
@@ -376,16 +626,30 @@ def train_final_model_and_predict_fixtures(
     draw_probability_multiplier: float = DEFAULT_DRAW_PROBABILITY_MULTIPLIER,
     goal_inflation: float = DEFAULT_GOAL_INFLATION,
     context_overrides: pd.DataFrame | None = None,
+    qualified_context_enabled: bool = True,
+    qualified_context_min_points: int = ALREADY_QUALIFIED_MIN_POINTS,
+    qualified_context_advancing_slots: int = ALREADY_QUALIFIED_ADVANCING_SLOTS,
 ) -> pd.DataFrame:
     """Fit on all processed history and predict future fixture picks."""
     model = fit_goal_model(processed_matches)
     team_states = build_team_states(completed_results)
     fixture_features = build_fixture_features(fixtures, team_states)
+    automatic_context = (
+        build_already_qualified_context_overrides(
+            completed_results,
+            fixtures,
+            min_points=qualified_context_min_points,
+            advancing_slots=qualified_context_advancing_slots,
+        )
+        if qualified_context_enabled
+        else None
+    )
+    combined_context = _combine_context_overrides(automatic_context, context_overrides)
     return predict_fixture_picks(
         model,
         fixture_features,
         max_total_candidate_goals=max_total_candidate_goals,
         draw_probability_multiplier=draw_probability_multiplier,
         goal_inflation=goal_inflation,
-        context_overrides=context_overrides,
+        context_overrides=combined_context,
     )

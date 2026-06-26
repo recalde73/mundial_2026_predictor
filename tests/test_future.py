@@ -2,6 +2,7 @@ import pandas as pd
 from pytest import approx
 
 from worldcup_predictor.future import (
+    build_already_qualified_context_overrides,
     build_fixture_features,
     build_team_states,
     completed_matches,
@@ -144,3 +145,65 @@ def test_predict_fixture_picks_applies_context_overrides_to_expected_goals() -> 
     assert row.draw_probability_multiplier == 0.9
     assert bool(row.context_applied) is True
     assert row.context_notes == "France without key forward"
+
+
+def test_build_already_qualified_context_overrides_flags_last_group_match() -> None:
+    completed = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-11", "2026-06-18", "2026-06-11", "2026-06-18"]),
+            "home_team": ["A", "A", "C", "D"],
+            "away_team": ["B", "C", "D", "B"],
+            "home_score": [2, 1, 0, 0],
+            "away_score": [0, 0, 0, 1],
+            "tournament": ["FIFA World Cup"] * 4,
+        }
+    )
+    fixtures = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-25", "2026-06-25"]),
+            "home_team": ["A", "B"],
+            "away_team": ["D", "C"],
+            "home_score": [None, None],
+            "away_score": [None, None],
+            "tournament": ["FIFA World Cup"] * 2,
+        }
+    )
+
+    overrides = build_already_qualified_context_overrides(completed, fixtures)
+
+    assert len(overrides) == 1
+    row = overrides.iloc[0]
+    assert row.home_team == "A"
+    assert row.away_team == "D"
+    assert row.home_attack_multiplier == approx(0.88)
+    assert row.home_defense_multiplier == approx(1.08)
+    assert row.away_attack_multiplier == approx(1.0)
+    assert row.draw_probability_multiplier == approx(1.08)
+    assert "A (6 pts)" in row.notes
+
+
+def test_build_already_qualified_context_overrides_avoids_unclinched_team() -> None:
+    completed = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-11", "2026-06-11", "2026-06-18", "2026-06-18"]),
+            "home_team": ["A", "C", "A", "B"],
+            "away_team": ["B", "D", "C", "D"],
+            "home_score": [1, 1, 2, 2],
+            "away_score": [1, 0, 0, 0],
+            "tournament": ["FIFA World Cup"] * 4,
+        }
+    )
+    fixtures = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-25", "2026-06-25"]),
+            "home_team": ["A", "B"],
+            "away_team": ["D", "C"],
+            "home_score": [None, None],
+            "away_score": [None, None],
+            "tournament": ["FIFA World Cup"] * 2,
+        }
+    )
+
+    overrides = build_already_qualified_context_overrides(completed, fixtures, min_points=4)
+
+    assert overrides.empty

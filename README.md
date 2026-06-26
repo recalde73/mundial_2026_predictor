@@ -195,7 +195,7 @@ Esto hace automaticamente:
 - Consulta partidos finalizados del Mundial en ESPN desde `2026-06-11` hasta hoy.
 - Actualiza `data/manual/match_results_overrides.csv`.
 - Reconstruye features, actualiza Elo/forma reciente y reentrena el modelo final.
-- Aplica ajustes contextuales manuales desde `data/manual/match_context_overrides.csv`.
+- Aplica ajustes contextuales manuales desde `data/manual/match_context_overrides.csv` y ajustes automaticos para selecciones ya clasificadas antes de su ultimo partido de grupo.
 - Ejecuta Monte Carlo de grupos y torneo completo.
 - Compila el dashboard.
 - Reinicia `vite preview` en `http://localhost:4173`.

@@ -46,7 +46,8 @@ def main() -> None:
 
     print(f"Fixtures predicted: {len(predictions)}")
     print(f"Manual overrides applied: {len(overrides)}")
-    print(f"Context overrides applied: {len(context_overrides)}")
+    print(f"Manual context overrides loaded: {len(context_overrides)}")
+    print(f"Fixture context adjustments applied: {int(predictions['context_applied'].sum())}")
     print(f"Saved {output_path}")
     print("")
     print(predictions.head(20).to_string(index=False))
