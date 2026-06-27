@@ -6,10 +6,10 @@
     "minutes_share":0.9,
     "penalty_boost":0.1,
     "group_expected_goals":10.0,
-    "expected_knockout_matches":1.858984,
-    "estimated_team_tournament_goals":16.1966133333,
-    "expected_goals":6.5758250133,
-    "top_scorer_score":6.5758250133
+    "expected_knockout_matches":1.869272,
+    "estimated_team_tournament_goals":16.2309066667,
+    "expected_goals":6.5897481067,
+    "top_scorer_score":6.5897481067
   },
   {
     "player":"Erling Haaland",
@@ -18,10 +18,10 @@
     "minutes_share":0.9,
     "penalty_boost":0.12,
     "group_expected_goals":8.0,
-    "expected_knockout_matches":0.776796,
-    "estimated_team_tournament_goals":10.071456,
-    "expected_goals":5.015585088,
-    "top_scorer_score":5.015585088
+    "expected_knockout_matches":0.785512,
+    "estimated_team_tournament_goals":10.0946986667,
+    "expected_goals":5.027159936,
+    "top_scorer_score":5.027159936
   },
   {
     "player":"Lionel Messi",
@@ -29,11 +29,11 @@
     "goal_share":0.26,
     "minutes_share":0.78,
     "penalty_boost":0.12,
-    "group_expected_goals":8.6731715449,
-    "expected_knockout_matches":2.024118,
-    "estimated_team_tournament_goals":14.5250124253,
-    "expected_goals":4.6886740109,
-    "top_scorer_score":4.6886740109
+    "group_expected_goals":8.6748686757,
+    "expected_knockout_matches":2.025306,
+    "estimated_team_tournament_goals":14.5312898683,
+    "expected_goals":4.6907003695,
+    "top_scorer_score":4.6907003695
   },
   {
     "player":"Harry Kane",
@@ -41,11 +41,11 @@
     "goal_share":0.34,
     "minutes_share":0.88,
     "penalty_boost":0.12,
-    "group_expected_goals":6.3564276652,
-    "expected_knockout_matches":1.466216,
-    "estimated_team_tournament_goals":9.463059647,
-    "expected_goals":3.966914604,
-    "top_scorer_score":3.966914604
+    "group_expected_goals":6.3573111729,
+    "expected_knockout_matches":1.445796,
+    "estimated_team_tournament_goals":9.421102861,
+    "expected_goals":3.9493263193,
+    "top_scorer_score":3.9493263193
   },
   {
     "player":"Cristiano Ronaldo",
@@ -53,11 +53,11 @@
     "goal_share":0.28,
     "minutes_share":0.7,
     "penalty_boost":0.12,
-    "group_expected_goals":7.5064365914,
-    "expected_knockout_matches":1.57427,
-    "estimated_team_tournament_goals":11.4454892356,
-    "expected_goals":3.6167745985,
-    "top_scorer_score":3.6167745985
+    "group_expected_goals":7.5070173318,
+    "expected_knockout_matches":1.539612,
+    "estimated_team_tournament_goals":11.3596486545,
+    "expected_goals":3.5896489748,
+    "top_scorer_score":3.5896489748
   },
   {
     "player":"Jamal Musiala",
@@ -66,10 +66,10 @@
     "minutes_share":0.82,
     "penalty_boost":0.01,
     "group_expected_goals":10.0,
-    "expected_knockout_matches":1.884386,
-    "estimated_team_tournament_goals":16.2812866667,
-    "expected_goals":2.83294388,
-    "top_scorer_score":2.83294388
+    "expected_knockout_matches":1.967836,
+    "estimated_team_tournament_goals":16.5594533333,
+    "expected_goals":2.88134488,
+    "top_scorer_score":2.88134488
   },
   {
     "player":"Julian Alvarez",
@@ -77,11 +77,11 @@
     "goal_share":0.22,
     "minutes_share":0.72,
     "penalty_boost":0.02,
-    "group_expected_goals":8.6731715449,
-    "expected_knockout_matches":2.024118,
-    "estimated_team_tournament_goals":14.5250124253,
-    "expected_goals":2.5912622167,
-    "top_scorer_score":2.5912622167
+    "group_expected_goals":8.6748686757,
+    "expected_knockout_matches":2.025306,
+    "estimated_team_tournament_goals":14.5312898683,
+    "expected_goals":2.5923821125,
+    "top_scorer_score":2.5923821125
   },
   {
     "player":"Vinicius Junior",
@@ -90,10 +90,10 @@
     "minutes_share":0.82,
     "penalty_boost":0.02,
     "group_expected_goals":7.0,
-    "expected_knockout_matches":1.826458,
-    "estimated_team_tournament_goals":11.2617353333,
-    "expected_goals":2.4415442203,
-    "top_scorer_score":2.4415442203
+    "expected_knockout_matches":1.812746,
+    "estimated_team_tournament_goals":11.2297406667,
+    "expected_goals":2.4346077765,
+    "top_scorer_score":2.4346077765
   },
   {
     "player":"Lautaro Martinez",
@@ -101,23 +101,11 @@
     "goal_share":0.22,
     "minutes_share":0.62,
     "penalty_boost":0.02,
-    "group_expected_goals":8.6731715449,
-    "expected_knockout_matches":2.024118,
-    "estimated_team_tournament_goals":14.5250124253,
-    "expected_goals":2.2717119433,
-    "top_scorer_score":2.2717119433
-  },
-  {
-    "player":"Alvaro Morata",
-    "team":"Spain",
-    "goal_share":0.24,
-    "minutes_share":0.7,
-    "penalty_boost":0.05,
-    "group_expected_goals":6.030761346,
-    "expected_knockout_matches":1.881476,
-    "estimated_team_tournament_goals":9.8130055908,
-    "expected_goals":2.1392352188,
-    "top_scorer_score":2.1392352188
+    "group_expected_goals":8.6748686757,
+    "expected_knockout_matches":2.025306,
+    "estimated_team_tournament_goals":14.5312898683,
+    "expected_goals":2.2726937354,
+    "top_scorer_score":2.2726937354
   },
   {
     "player":"Raphinha",
@@ -126,10 +114,22 @@
     "minutes_share":0.78,
     "penalty_boost":0.03,
     "group_expected_goals":7.0,
-    "expected_knockout_matches":1.826458,
-    "estimated_team_tournament_goals":11.2617353333,
-    "expected_goals":2.094682772,
-    "top_scorer_score":2.094682772
+    "expected_knockout_matches":1.812746,
+    "estimated_team_tournament_goals":11.2297406667,
+    "expected_goals":2.088731764,
+    "top_scorer_score":2.088731764
+  },
+  {
+    "player":"Alvaro Morata",
+    "team":"Spain",
+    "goal_share":0.24,
+    "minutes_share":0.7,
+    "penalty_boost":0.05,
+    "group_expected_goals":5.0,
+    "expected_knockout_matches":1.78618,
+    "estimated_team_tournament_goals":7.9769666667,
+    "expected_goals":1.7389787333,
+    "top_scorer_score":1.7389787333
   },
   {
     "player":"Lamine Yamal",
@@ -137,10 +137,10 @@
     "goal_share":0.2,
     "minutes_share":0.78,
     "penalty_boost":0.01,
-    "group_expected_goals":6.030761346,
-    "expected_knockout_matches":1.881476,
-    "estimated_team_tournament_goals":9.8130055908,
-    "expected_goals":1.6289589281,
-    "top_scorer_score":1.6289589281
+    "group_expected_goals":5.0,
+    "expected_knockout_matches":1.78618,
+    "estimated_team_tournament_goals":7.9769666667,
+    "expected_goals":1.3241764667,
+    "top_scorer_score":1.3241764667
   }
 ]
