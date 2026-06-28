@@ -76,3 +76,22 @@ def test_simulate_tournament_returns_podium_probabilities() -> None:
     assert len(simulation) == 48
     assert all(simulation["champion_probability"].between(0, 1))
     assert simulation["champion_probability"].sum() == 1
+
+
+def test_simulate_tournament_handles_partial_bracket() -> None:
+    predictions = pd.DataFrame(
+        {
+            "date": pd.date_range("2026-01-01", periods=12),
+            "home_team": [f"T{group}_{home}" for group in range(2) for home, _away in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]],
+            "away_team": [f"T{group}_{away}" for group in range(2) for _home, away in [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]],
+            "home_expected_goals": [1.3] * 12,
+            "away_expected_goals": [1.0] * 12,
+            "home_elo": [1600.0] * 12,
+            "away_elo": [1500.0] * 12,
+        }
+    )
+
+    simulation = simulate_tournament(predictions, simulations=5, seed=1)
+
+    assert len(simulation) == 8
+    assert simulation["champion_probability"].sum() == 1

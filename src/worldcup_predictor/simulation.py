@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -408,30 +409,34 @@ def simulate_tournament(
         qualifiers = _simulate_fast_group_qualifiers(data, rng)
         counts[qualifiers, metric_index["round_of_32"]] += 1
 
-        current = _pair_seeded_indices(qualifiers)
-        winners, _losers = _simulate_knockout_round(current, data, rng)
-        counts[winners, metric_index["round_of_16"]] += 1
+        current = qualifiers
+        semifinal_losers = np.array([], dtype=np.int64)
+        for round_label, pairer in (
+            ("round_of_16", _pair_seeded_indices),
+            ("quarterfinal", _pair_adjacent_indices),
+            ("semifinal", _pair_adjacent_indices),
+            ("final", _pair_adjacent_indices),
+        ):
+            if len(current) <= 2:
+                break
+            winners, losers = _simulate_knockout_round_with_byes(current, pairer, data, rng)
+            counts[winners, metric_index[round_label]] += 1
+            if round_label == "final":
+                semifinal_losers = losers
+            current = winners
 
-        current = _pair_adjacent_indices(winners)
-        winners, _losers = _simulate_knockout_round(current, data, rng)
-        counts[winners, metric_index["quarterfinal"]] += 1
+        if len(current) == 2:
+            final_pair = np.array([[current[0], current[1]]], dtype=np.int64)
+            champion_array, runner_up_array = _simulate_knockout_round(final_pair, data, rng)
+            counts[champion_array[0], metric_index["champion"]] += 1
+            counts[runner_up_array[0], metric_index["runner_up"]] += 1
+        elif len(current) == 1:
+            counts[current[0], metric_index["champion"]] += 1
 
-        current = _pair_adjacent_indices(winners)
-        winners, _losers = _simulate_knockout_round(current, data, rng)
-        counts[winners, metric_index["semifinal"]] += 1
-
-        current = _pair_adjacent_indices(winners)
-        finalists, semifinal_losers = _simulate_knockout_round(current, data, rng)
-        counts[finalists, metric_index["final"]] += 1
-
-        final_pair = np.array([[finalists[0], finalists[1]]], dtype=np.int64)
-        champion_array, runner_up_array = _simulate_knockout_round(final_pair, data, rng)
-        counts[champion_array[0], metric_index["champion"]] += 1
-        counts[runner_up_array[0], metric_index["runner_up"]] += 1
-
-        third_pair = np.array([[semifinal_losers[0], semifinal_losers[1]]], dtype=np.int64)
-        third_array, _fourth_array = _simulate_knockout_round(third_pair, data, rng)
-        counts[third_array[0], metric_index["third_place"]] += 1
+        if len(semifinal_losers) >= 2:
+            third_pair = np.array([[semifinal_losers[0], semifinal_losers[1]]], dtype=np.int64)
+            third_array, _fourth_array = _simulate_knockout_round(third_pair, data, rng)
+            counts[third_array[0], metric_index["third_place"]] += 1
 
     rows = []
     for team_index, team in enumerate(data.teams):
@@ -662,6 +667,21 @@ def _pair_adjacent_indices(team_indices: np.ndarray) -> np.ndarray:
         [[int(team_indices[index]), int(team_indices[index + 1])] for index in range(0, len(team_indices), 2)],
         dtype=np.int64,
     )
+
+
+def _simulate_knockout_round_with_byes(
+    team_indices: np.ndarray,
+    pairer: Callable[[np.ndarray], np.ndarray],
+    data: FastTournamentData,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    paired_count = len(team_indices) - len(team_indices) % 2
+    pairs = pairer(team_indices[:paired_count])
+    winners, losers = _simulate_knockout_round(pairs, data, rng)
+    if paired_count == len(team_indices):
+        return winners, losers
+
+    return np.concatenate([winners, team_indices[paired_count:]]), losers
 
 
 def _simulate_knockout_round(
