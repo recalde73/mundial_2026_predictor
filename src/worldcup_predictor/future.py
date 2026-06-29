@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from itertools import product
-from math import comb
+from math import comb, exp
 from pathlib import Path
 
 import pandas as pd
@@ -22,6 +22,11 @@ from worldcup_predictor.recommender import (
     rank_predictions,
 )
 from worldcup_predictor.scoring import candidate_scorelines, expected_points
+from worldcup_predictor.stages import (
+    GROUP_STAGE,
+    add_tournament_stages,
+    is_knockout_stage,
+)
 
 
 COMPETITIVE_DRAW_PROBABILITY_THRESHOLD = 0.26
@@ -37,11 +42,17 @@ DEFAULT_RISK_PROFILE = "aggressive"
 VALID_RISK_PROFILES = {"conservative", "balanced", "aggressive", "desperation"}
 MIN_DYNAMIC_GOAL_INFLATION = 0.85
 MAX_DYNAMIC_GOAL_INFLATION = 1.50
+MAX_KNOCKOUT_GOAL_INFLATION = 1.25
 
 COMPETITIVE_CONTEXT_COLUMNS = [
     "date",
     "home_team",
     "away_team",
+    "tournament_stage",
+    "is_group_stage",
+    "is_knockout_stage",
+    "is_extra_time_possible",
+    "is_penalty_possible",
     "group",
     "is_last_group_match",
     "home_needs_win",
@@ -56,6 +67,15 @@ COMPETITIVE_CONTEXT_COLUMNS = [
     "away_goal_difference_pressure",
     "match_pressure_score",
     "group_scenario_volatility",
+    "home_must_advance",
+    "away_must_advance",
+    "knockout_match_importance",
+    "extra_time_risk",
+    "penalty_risk",
+    "favorite_caution_factor",
+    "underdog_low_block_factor",
+    "knockout_draw_boost",
+    "late_game_opening_factor",
 ]
 
 
@@ -424,6 +444,58 @@ def _team_goal_difference_pressure(
     return tied_or_near_cutoff and weak_tiebreaker
 
 
+def apply_knockout_context_adjustments(
+    base_goal_inflation: float,
+    elo_diff: float,
+) -> dict[str, object]:
+    """Return 90-minute knockout calibration factors."""
+    abs_elo_diff = abs(elo_diff)
+    if abs_elo_diff < 75:
+        goal_inflation = 1.08
+        draw_boost = 1.12
+        extra_time_risk = 0.34
+        penalty_risk = 0.15
+        favorite_caution = 0.92
+        underdog_low_block = 1.10
+        late_opening = 1.02
+        reason = "knockout: balanced tie, draw boosted, goals dampened"
+    elif abs_elo_diff < 150:
+        goal_inflation = 1.12
+        draw_boost = 1.04
+        extra_time_risk = 0.24
+        penalty_risk = 0.10
+        favorite_caution = 0.96
+        underdog_low_block = 1.06
+        late_opening = 1.04
+        reason = "knockout: moderate favorite, controlled tempo"
+    else:
+        goal_inflation = 1.12
+        draw_boost = 1.00
+        extra_time_risk = 0.20
+        penalty_risk = 0.08
+        favorite_caution = 0.98
+        underdog_low_block = 1.03
+        late_opening = 1.08
+        reason = "knockout: clear favorite, late opening risk"
+
+    if abs_elo_diff >= 300:
+        goal_inflation = 1.18
+        late_opening = 1.10
+        reason = "knockout: strong favorite, late opening risk"
+
+    return {
+        "stage_adjusted_goal_inflation": min(MAX_KNOCKOUT_GOAL_INFLATION, max(MIN_DYNAMIC_GOAL_INFLATION, goal_inflation)),
+        "dynamic_goal_inflation_reason": reason,
+        "knockout_draw_boost": draw_boost,
+        "extra_time_risk": extra_time_risk,
+        "penalty_risk": penalty_risk,
+        "favorite_caution_factor": favorite_caution,
+        "underdog_low_block_factor": underdog_low_block,
+        "late_game_opening_factor": late_opening,
+        "inflation_warning_flag": base_goal_inflation > MAX_KNOCKOUT_GOAL_INFLATION,
+    }
+
+
 def _match_pressure_score(context: dict[str, object]) -> float:
     pressure = 0.0
     pressure += 0.28 if bool(context["home_needs_win"]) else 0.0
@@ -453,15 +525,30 @@ def _build_competitive_context_map(
     contexts: dict[tuple[str, str, str], dict[str, object]] = {}
     for row in competitive_context.itertuples(index=False):
         key = _fixture_key(row.date, str(row.home_team), str(row.away_team))
-        contexts[key] = {column: getattr(row, column) for column in COMPETITIVE_CONTEXT_COLUMNS}
+        context = _default_competitive_context(row.date, str(row.home_team), str(row.away_team))
+        for column in COMPETITIVE_CONTEXT_COLUMNS:
+            if hasattr(row, column):
+                context[column] = getattr(row, column)
+        contexts[key] = context
     return contexts
 
 
-def _default_competitive_context(date: object, home_team: str, away_team: str) -> dict[str, object]:
+def _default_competitive_context(
+    date: object,
+    home_team: str,
+    away_team: str,
+    tournament_stage: str = "",
+) -> dict[str, object]:
+    knockout = is_knockout_stage(tournament_stage)
     return {
         "date": date,
         "home_team": home_team,
         "away_team": away_team,
+        "tournament_stage": tournament_stage,
+        "is_group_stage": tournament_stage == GROUP_STAGE,
+        "is_knockout_stage": knockout,
+        "is_extra_time_possible": knockout,
+        "is_penalty_possible": knockout,
         "group": "",
         "is_last_group_match": False,
         "home_needs_win": False,
@@ -474,8 +561,17 @@ def _default_competitive_context(date: object, home_team: str, away_team: str) -
         "away_eliminated": False,
         "home_goal_difference_pressure": False,
         "away_goal_difference_pressure": False,
-        "match_pressure_score": 0.0,
+        "match_pressure_score": 1.0 if knockout else 0.0,
         "group_scenario_volatility": 0.0,
+        "home_must_advance": knockout,
+        "away_must_advance": knockout,
+        "knockout_match_importance": 1.0 if knockout else 0.0,
+        "extra_time_risk": 0.0,
+        "penalty_risk": 0.0,
+        "favorite_caution_factor": 1.0,
+        "underdog_low_block_factor": 1.0,
+        "knockout_draw_boost": 1.0,
+        "late_game_opening_factor": 1.0,
     }
 
 
@@ -502,13 +598,28 @@ def build_competitive_context(
         return _empty_competitive_context()
 
     columns = ["date", "home_team", "away_team", "tournament", "home_score", "away_score"]
-    schedule = pd.concat([completed.loc[:, columns], pending.loc[:, columns]], ignore_index=True)
-    group_by_team = _infer_group_map(schedule)
+    schedule = add_tournament_stages(pd.concat([completed.loc[:, columns], pending.loc[:, columns]], ignore_index=True))
+    stage_columns = [
+        "tournament_stage",
+        "is_group_stage",
+        "is_knockout_stage",
+        "is_extra_time_possible",
+        "is_penalty_possible",
+    ]
+    pending = pending.drop(columns=[column for column in stage_columns if column in pending.columns], errors="ignore").merge(
+        schedule.loc[:, ["date", "home_team", "away_team", *stage_columns]],
+        on=["date", "home_team", "away_team"],
+        how="left",
+    )
+    group_schedule = schedule[schedule["tournament_stage"] == GROUP_STAGE].copy()
+    group_by_team = _infer_group_map(group_schedule) if not group_schedule.empty else {}
     teams_by_group: defaultdict[str, set[str]] = defaultdict(set)
     remaining_matches_by_group: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
     total_matches_by_team: defaultdict[str, int] = defaultdict(int)
 
     for match in schedule.itertuples(index=False):
+        if str(match.tournament_stage) != GROUP_STAGE:
+            continue
         home_team = str(match.home_team)
         away_team = str(match.away_team)
         group = group_by_team.get(home_team)
@@ -519,6 +630,8 @@ def build_competitive_context(
         total_matches_by_team[away_team] += 1
 
     for match in pending.itertuples(index=False):
+        if str(match.tournament_stage) != GROUP_STAGE:
+            continue
         home_team = str(match.home_team)
         away_team = str(match.away_team)
         group = group_by_team.get(home_team)
@@ -528,6 +641,13 @@ def build_competitive_context(
 
     standings: defaultdict[str, dict[str, int]] = defaultdict(_empty_standing_record)
     for match in completed.sort_values("date").itertuples(index=False):
+        completed_stage = schedule[
+            (schedule["date"] == match.date)
+            & (schedule["home_team"] == match.home_team)
+            & (schedule["away_team"] == match.away_team)
+        ]
+        if completed_stage.empty or str(completed_stage.iloc[0]["tournament_stage"]) != GROUP_STAGE:
+            continue
         if group_by_team.get(str(match.home_team)) != group_by_team.get(str(match.away_team)):
             continue
         _add_standing_result(
@@ -542,16 +662,22 @@ def build_competitive_context(
     for match in pending.sort_values("date").itertuples(index=False):
         home_team = str(match.home_team)
         away_team = str(match.away_team)
+        tournament_stage = str(match.tournament_stage)
+        if tournament_stage != GROUP_STAGE:
+            rows.append(_default_competitive_context(match.date, home_team, away_team, tournament_stage))
+            continue
+
         current_match = (home_team, away_team)
         group = group_by_team.get(home_team, "")
         group_teams = teams_by_group[group]
         remaining_matches = remaining_matches_by_group[group]
         volatility = _group_scenario_volatility(group_teams, standings, remaining_matches, advancing_slots)
 
-        row = _default_competitive_context(match.date, home_team, away_team)
+        row = _default_competitive_context(match.date, home_team, away_team, tournament_stage)
         row["group"] = group
         row["is_last_group_match"] = (
-            standings[home_team]["played"] == total_matches_by_team[home_team] - 1
+            tournament_stage == GROUP_STAGE
+            and standings[home_team]["played"] == total_matches_by_team[home_team] - 1
             and standings[away_team]["played"] == total_matches_by_team[away_team] - 1
         )
         row["group_scenario_volatility"] = volatility
@@ -628,6 +754,13 @@ def _dynamic_goal_inflation(
     context: dict[str, object],
     elo_diff: float,
 ) -> tuple[float, str]:
+    if bool(context["is_knockout_stage"]):
+        knockout = apply_knockout_context_adjustments(base_goal_inflation, elo_diff)
+        return (
+            float(knockout["stage_adjusted_goal_inflation"]),
+            str(knockout["dynamic_goal_inflation_reason"]),
+        )
+
     value = base_goal_inflation
     reasons: list[str] = []
 
@@ -689,6 +822,11 @@ def _scoreline_result(scoreline: tuple[int, int]) -> str:
 
 def _scoreline_text(scoreline: tuple[int, int]) -> str:
     return f"{scoreline[0]}-{scoreline[1]}"
+
+
+def _scoreline_from_text(scoreline: str) -> tuple[int, int]:
+    home_score, away_score = scoreline.split("-", maxsplit=1)
+    return int(home_score), int(away_score)
 
 
 def _result_probabilities_from_scorelines(probabilities: dict[tuple[int, int], float]) -> dict[str, float]:
@@ -774,6 +912,8 @@ def _risk_profile_picks(
     max_total_candidate_goals: int | None,
     draw_probability_multiplier: float,
     closed_context: bool = False,
+    context: dict[str, object] | None = None,
+    elo_diff: float = 0.0,
 ) -> dict[str, dict[str, object]]:
     adjusted_probabilities = adjust_draw_probabilities(
         probabilities,
@@ -781,6 +921,9 @@ def _risk_profile_picks(
     )
     result_probabilities = _result_probabilities_from_scorelines(adjusted_probabilities)
     favorite_result = max(result_probabilities, key=result_probabilities.get)
+    favorite_probability = result_probabilities[favorite_result]
+    draw_probability = result_probabilities["draw"]
+    knockout = bool(context and context.get("is_knockout_stage"))
 
     conservative_candidates = [
         candidate
@@ -797,29 +940,73 @@ def _risk_profile_picks(
         draw_probability_multiplier=draw_probability_multiplier,
         limit=1,
     )[0]
+    balanced_metric = _pick_metric(balanced_pick, adjusted_probabilities, result_probabilities)
+
+    aggressive_total_goal_cap = max_total_candidate_goals if closed_context else 5
+    desperation_total_goal_cap = 5 if closed_context else None
+    if knockout:
+        aggressive_total_goal_cap = 4
+        desperation_total_goal_cap = 4 if favorite_probability < 0.58 else 5
 
     aggressive_candidates = _candidate_pool(
-        max_total_candidate_goals=max_total_candidate_goals if closed_context else 5
+        max_total_candidate_goals=aggressive_total_goal_cap
     )
-    desperation_candidates = _candidate_pool(max_total_candidate_goals=5 if closed_context else None)
+    desperation_candidates = _candidate_pool(max_total_candidate_goals=desperation_total_goal_cap)
+
+    if knockout:
+        aggressive_candidates = tuple(
+            candidate
+            for candidate in aggressive_candidates
+            if not (
+                sum(candidate) >= 5
+                or (
+                    candidate in {(3, 2), (2, 3)}
+                    and (
+                        draw_probability > 0.20
+                        or favorite_probability < 0.58
+                        or abs(elo_diff) < 100
+                    )
+                )
+            )
+        )
+
+    metric_cache = {
+        candidate: _pick_metric(candidate, adjusted_probabilities, result_probabilities)
+        for candidate in set(aggressive_candidates) | set(desperation_candidates) | {conservative_pick, balanced_pick}
+    }
+
+    aggressive_floor = float(balanced_metric["expected_points"]) * (0.90 if knockout and favorite_probability < 0.58 else 0.85)
+    viable_aggressive_candidates = tuple(
+        candidate
+        for candidate in aggressive_candidates
+        if float(metric_cache[candidate]["expected_points"]) >= aggressive_floor
+    ) or (balanced_pick,)
     aggressive_pick = max(
-        aggressive_candidates,
+        viable_aggressive_candidates,
         key=lambda candidate: (
-            _pick_metric(candidate, adjusted_probabilities, result_probabilities)["expected_points"]
-            * _pick_metric(candidate, adjusted_probabilities, result_probabilities)["upside_multiplier"]
-            * (_pick_metric(candidate, adjusted_probabilities, result_probabilities)["differential_multiplier"] ** 0.45)
+            metric_cache[candidate]["expected_points"]
+            * metric_cache[candidate]["upside_multiplier"]
+            * (metric_cache[candidate]["differential_multiplier"] ** 0.45)
         ),
     )
     desperation_pick = max(
         desperation_candidates,
-        key=lambda candidate: _pick_metric(candidate, adjusted_probabilities, result_probabilities)["strategic_pick_value"],
+        key=lambda candidate: metric_cache[candidate]["strategic_pick_value"],
     )
+    risk_adjusted_candidates = sorted(
+        viable_aggressive_candidates,
+        key=lambda candidate: metric_cache[candidate]["expected_points"],
+        reverse=True,
+    )[:5]
 
     return {
         "conservative": {"scoreline": conservative_pick, **_pick_metric(conservative_pick, adjusted_probabilities, result_probabilities)},
-        "balanced": {"scoreline": balanced_pick, **_pick_metric(balanced_pick, adjusted_probabilities, result_probabilities)},
-        "aggressive": {"scoreline": aggressive_pick, **_pick_metric(aggressive_pick, adjusted_probabilities, result_probabilities)},
-        "desperation": {"scoreline": desperation_pick, **_pick_metric(desperation_pick, adjusted_probabilities, result_probabilities)},
+        "balanced": {"scoreline": balanced_pick, **balanced_metric},
+        "aggressive": {"scoreline": aggressive_pick, **metric_cache[aggressive_pick]},
+        "desperation": {"scoreline": desperation_pick, **metric_cache[desperation_pick]},
+        "aggressive_total_goal_cap": aggressive_total_goal_cap,
+        "desperation_total_goal_cap": desperation_total_goal_cap,
+        "risk_adjusted_candidate_scorelines": ",".join(_scoreline_text(candidate) for candidate in risk_adjusted_candidates),
     }
 
 
@@ -845,6 +1032,10 @@ def _error_risk(result_probabilities: dict[str, float], context: dict[str, objec
 def _context_reasons(context: dict[str, object], dynamic_goal_inflation_reason: str) -> tuple[str, str]:
     reasons = [dynamic_goal_inflation_reason]
     alerts: list[str] = []
+    if bool(context["is_knockout_stage"]):
+        alerts.append("knockout_stage")
+        return " | ".join(reasons), ",".join(alerts)
+
     if bool(context["home_already_qualified"]) and bool(context["away_already_qualified"]):
         alerts.append("both_already_qualified")
     elif bool(context["home_already_qualified"]) or bool(context["away_already_qualified"]):
@@ -858,6 +1049,85 @@ def _context_reasons(context: dict[str, object], dynamic_goal_inflation_reason: 
     if bool(context["home_eliminated"]) or bool(context["away_eliminated"]):
         alerts.append("elimination_context")
     return " | ".join(reasons), ",".join(alerts)
+
+
+def _append_csv_flag(existing: object, flag: str) -> str:
+    flags = [item for item in str(existing or "").split(",") if item]
+    if flag not in flags:
+        flags.append(flag)
+    return ",".join(flags)
+
+
+def _append_warning(existing: object, warning: str) -> str:
+    warnings = [item for item in str(existing or "").split(" | ") if item]
+    if warning not in warnings:
+        warnings.append(warning)
+    return " | ".join(warnings)
+
+
+def _apply_daily_scoreline_diversity(predictions: pd.DataFrame) -> pd.DataFrame:
+    if predictions.empty:
+        return predictions
+
+    diversified = predictions.copy()
+    diversified["same_day_scoreline_count"] = 1
+    diversified["scoreline_diversity_penalty"] = 0.0
+    diversified["diversified_recommended_scoreline"] = diversified["recommended_scoreline"]
+
+    for _date, group in diversified.groupby("date", sort=True):
+        scoreline_counts: defaultdict[str, int] = defaultdict(int)
+        for index in group.sort_values("recommended_expected_points", ascending=False).index:
+            scoreline = str(diversified.at[index, "recommended_scoreline"])
+            scoreline_counts[scoreline] += 1
+            count = scoreline_counts[scoreline]
+            diversified.at[index, "same_day_scoreline_count"] = count
+            if count < 3:
+                continue
+
+            penalty = min(0.15, 0.05 * (count - 1))
+            diversified.at[index, "scoreline_diversity_penalty"] = penalty
+            diversified.at[index, "strategic_pick_value"] = float(diversified.at[index, "strategic_pick_value"]) * (1.0 - penalty)
+            diversified.at[index, "alert_flags"] = _append_csv_flag(
+                diversified.at[index, "alert_flags"],
+                "daily_scoreline_diversity_penalty",
+            )
+            diversified.at[index, "model_warning_summary"] = _append_warning(
+                diversified.at[index, "model_warning_summary"],
+                "Same scoreline repeated 3+ times on date",
+            )
+
+            knockout_row = "is_knockout_stage" in diversified.columns and bool(diversified.at[index, "is_knockout_stage"])
+            row_draw_probability = float(diversified.at[index, "draw_probability"]) if "draw_probability" in diversified.columns else 0.0
+            if knockout_row and row_draw_probability >= 0.25:
+                alternatives = (
+                    (str(diversified.at[index, "draw_alternative_scoreline"]), float(diversified.at[index, "draw_alternative_expected_points"])),
+                    (str(diversified.at[index, "balanced_scoreline"]), float(diversified.at[index, "balanced_expected_points"])),
+                    (str(diversified.at[index, "conservative_scoreline"]), float(diversified.at[index, "conservative_expected_points"])),
+                )
+            else:
+                alternatives = (
+                    (str(diversified.at[index, "balanced_scoreline"]), float(diversified.at[index, "balanced_expected_points"])),
+                    (str(diversified.at[index, "conservative_scoreline"]), float(diversified.at[index, "conservative_expected_points"])),
+                    (str(diversified.at[index, "draw_alternative_scoreline"]), float(diversified.at[index, "draw_alternative_expected_points"])),
+                )
+            replacement = next(((candidate, value) for candidate, value in alternatives if candidate != scoreline), None)
+            if replacement is None:
+                continue
+
+            replacement_scoreline, replacement_expected_points = replacement
+            home_score, away_score = _scoreline_from_text(replacement_scoreline)
+            diversified.at[index, "diversified_recommended_scoreline"] = replacement_scoreline
+            diversified.at[index, "recommended_scoreline"] = replacement_scoreline
+            diversified.at[index, "recommended_home_score"] = home_score
+            diversified.at[index, "recommended_away_score"] = away_score
+            diversified.at[index, "predicted_90min_scoreline"] = replacement_scoreline
+            diversified.at[index, "recommended_expected_points"] = replacement_expected_points
+            diversified.at[index, "recommended_pick_explanation"] = (
+                str(diversified.at[index, "recommended_pick_explanation"])
+                + " Diversity layer moved the pick to a lower-duplication alternative."
+            )
+
+    return diversified
 
 
 def build_already_qualified_context_overrides(
@@ -884,12 +1154,27 @@ def build_already_qualified_context_overrides(
         return _empty_context_overrides()
 
     columns = ["date", "home_team", "away_team", "tournament", "home_score", "away_score"]
-    schedule = pd.concat([completed.loc[:, columns], pending.loc[:, columns]], ignore_index=True)
-    group_by_team = _infer_group_map(schedule)
+    schedule = add_tournament_stages(pd.concat([completed.loc[:, columns], pending.loc[:, columns]], ignore_index=True))
+    stage_columns = [
+        "tournament_stage",
+        "is_group_stage",
+        "is_knockout_stage",
+        "is_extra_time_possible",
+        "is_penalty_possible",
+    ]
+    pending = pending.drop(columns=[column for column in stage_columns if column in pending.columns], errors="ignore").merge(
+        schedule.loc[:, ["date", "home_team", "away_team", *stage_columns]],
+        on=["date", "home_team", "away_team"],
+        how="left",
+    )
+    group_schedule = schedule[schedule["tournament_stage"] == GROUP_STAGE].copy()
+    group_by_team = _infer_group_map(group_schedule) if not group_schedule.empty else {}
     teams_by_group: defaultdict[str, set[str]] = defaultdict(set)
     remaining_matches_by_group: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
     total_matches_by_team: defaultdict[str, int] = defaultdict(int)
     for match in schedule.itertuples(index=False):
+        if str(match.tournament_stage) != GROUP_STAGE:
+            continue
         home_team = str(match.home_team)
         away_team = str(match.away_team)
         group = group_by_team.get(home_team)
@@ -900,6 +1185,8 @@ def build_already_qualified_context_overrides(
         total_matches_by_team[away_team] += 1
 
     for match in pending.itertuples(index=False):
+        if str(match.tournament_stage) != GROUP_STAGE:
+            continue
         home_team = str(match.home_team)
         away_team = str(match.away_team)
         group = group_by_team.get(home_team)
@@ -909,6 +1196,13 @@ def build_already_qualified_context_overrides(
 
     standings: defaultdict[str, dict[str, int]] = defaultdict(_empty_standing_record)
     for match in completed.sort_values("date").itertuples(index=False):
+        completed_stage = schedule[
+            (schedule["date"] == match.date)
+            & (schedule["home_team"] == match.home_team)
+            & (schedule["away_team"] == match.away_team)
+        ]
+        if completed_stage.empty or str(completed_stage.iloc[0]["tournament_stage"]) != GROUP_STAGE:
+            continue
         if group_by_team.get(str(match.home_team)) != group_by_team.get(str(match.away_team)):
             continue
         _add_standing_result(
@@ -921,6 +1215,8 @@ def build_already_qualified_context_overrides(
 
     rows: list[dict[str, object]] = []
     for match in pending.sort_values("date").itertuples(index=False):
+        if str(match.tournament_stage) != GROUP_STAGE:
+            continue
         home_team = str(match.home_team)
         away_team = str(match.away_team)
         qualified_teams: list[str] = []
@@ -996,12 +1292,13 @@ def load_raw_results_with_fixtures(path: str | Path) -> pd.DataFrame:
     """Load raw results including future fixtures with missing scores."""
     results = pd.read_csv(path, parse_dates=["date"])
     results["neutral"] = results["neutral"].astype(bool)
-    return results.sort_values("date").reset_index(drop=True)
+    return add_tournament_stages(results.sort_values("date").reset_index(drop=True))
 
 
 def completed_matches(raw_results: pd.DataFrame) -> pd.DataFrame:
     """Return only matches with known final scores."""
-    completed = raw_results.dropna(subset=["home_score", "away_score"]).copy()
+    staged = add_tournament_stages(raw_results) if "tournament_stage" not in raw_results else raw_results.copy()
+    completed = staged.dropna(subset=["home_score", "away_score"]).copy()
     completed["home_score"] = completed["home_score"].astype(int)
     completed["away_score"] = completed["away_score"].astype(int)
     return completed.sort_values("date").reset_index(drop=True)
@@ -1013,9 +1310,8 @@ def future_fixtures(
     start_date: str | None = None,
 ) -> pd.DataFrame:
     """Return fixtures with missing scores, optionally filtered by tournament/date."""
-    fixtures = raw_results[
-        raw_results["home_score"].isna() | raw_results["away_score"].isna()
-    ].copy()
+    staged = add_tournament_stages(raw_results) if "tournament_stage" not in raw_results else raw_results.copy()
+    fixtures = staged[staged["home_score"].isna() | staged["away_score"].isna()].copy()
     if tournament is not None:
         fixtures = fixtures[fixtures["tournament"] == tournament]
     if start_date is not None:
@@ -1093,6 +1389,8 @@ def build_fixture_features(
         )
         home_advantage = 0.0 if bool(fixture.neutral) else elo_config.home_advantage
         home_elo_expected_result = expected_result(home_state.elo, away_state.elo, home_advantage)
+        tournament_stage = str(getattr(fixture, "tournament_stage", ""))
+        knockout = is_knockout_stage(tournament_stage)
 
         rows.append(
             {
@@ -1100,6 +1398,11 @@ def build_fixture_features(
                 "home_team": fixture.home_team,
                 "away_team": fixture.away_team,
                 "tournament": fixture.tournament,
+                "tournament_stage": tournament_stage,
+                "is_group_stage": tournament_stage == GROUP_STAGE,
+                "is_knockout_stage": knockout,
+                "is_extra_time_possible": knockout,
+                "is_penalty_possible": knockout,
                 "neutral": bool(fixture.neutral),
                 "is_friendly": fixture.tournament == "Friendly",
                 "year": fixture.date.year,
@@ -1148,6 +1451,7 @@ def predict_fixture_picks(
 
     for match in predictions.itertuples(index=False):
         key = _fixture_key(match.date, str(match.home_team), str(match.away_team))
+        feature_tournament_stage = str(getattr(match, "tournament_stage", ""))
         context = _context_adjustment_for(
             context_by_fixture,
             match.date,
@@ -1156,8 +1460,31 @@ def predict_fixture_picks(
         )
         competitive = competitive_context_by_fixture.get(
             key,
-            _default_competitive_context(match.date, str(match.home_team), str(match.away_team)),
+            _default_competitive_context(
+                match.date,
+                str(match.home_team),
+                str(match.away_team),
+                feature_tournament_stage,
+            ),
         )
+        if not str(competitive.get("tournament_stage", "")) and feature_tournament_stage:
+            inferred_competitive = _default_competitive_context(
+                match.date,
+                str(match.home_team),
+                str(match.away_team),
+                feature_tournament_stage,
+            )
+            for competitive_key, competitive_value in competitive.items():
+                if competitive_key in {
+                    "tournament_stage",
+                    "is_group_stage",
+                    "is_knockout_stage",
+                    "is_extra_time_possible",
+                    "is_penalty_possible",
+                }:
+                    continue
+                inferred_competitive[competitive_key] = competitive_value
+            competitive = inferred_competitive
         competitive_context_applied = key in competitive_context_by_fixture
         context_applied = key in context_by_fixture
         model_home_expected_goals = float(match.home_expected_goals)
@@ -1174,8 +1501,21 @@ def predict_fixture_picks(
             * float(context["away_attack_multiplier"])
             * float(context["home_defense_multiplier"]),
         )
+        knockout_adjustments = apply_knockout_context_adjustments(goal_inflation, float(match.elo_diff)) if bool(competitive["is_knockout_stage"]) else {}
+        for adjustment_key in (
+            "knockout_draw_boost",
+            "extra_time_risk",
+            "penalty_risk",
+            "favorite_caution_factor",
+            "underdog_low_block_factor",
+            "late_game_opening_factor",
+        ):
+            if adjustment_key in knockout_adjustments:
+                competitive[adjustment_key] = knockout_adjustments[adjustment_key]
         effective_draw_probability_multiplier = (
-            draw_probability_multiplier * float(context["draw_probability_multiplier"])
+            draw_probability_multiplier
+            * float(context["draw_probability_multiplier"])
+            * float(competitive["knockout_draw_boost"])
         )
         dynamic_goal_inflation, dynamic_goal_inflation_reason = (
             _dynamic_goal_inflation(goal_inflation, competitive, float(match.elo_diff))
@@ -1205,23 +1545,29 @@ def predict_fixture_picks(
             max_total_candidate_goals=max_total_candidate_goals,
             draw_probability_multiplier=effective_draw_probability_multiplier,
             closed_context=closed_pick_context,
+            context=competitive,
+            elo_diff=float(match.elo_diff),
         )
         selected_pick = risk_picks[risk_profile]
         pick = selected_pick["scoreline"]
         pick_expected_points = float(selected_pick["expected_points"])
+        adjusted_probabilities = adjust_draw_probabilities(
+            probabilities,
+            draw_probability_multiplier=effective_draw_probability_multiplier,
+        )
         home_win_probability = sum(
             probability
-            for (home_goals, away_goals), probability in probabilities.items()
+            for (home_goals, away_goals), probability in adjusted_probabilities.items()
             if home_goals > away_goals
         )
         draw_probability = sum(
             probability
-            for (home_goals, away_goals), probability in probabilities.items()
+            for (home_goals, away_goals), probability in adjusted_probabilities.items()
             if home_goals == away_goals
         )
         away_win_probability = sum(
             probability
-            for (home_goals, away_goals), probability in probabilities.items()
+            for (home_goals, away_goals), probability in adjusted_probabilities.items()
             if home_goals < away_goals
         )
         draw_pick, draw_expected_points = _best_draw_alternative(
@@ -1240,6 +1586,54 @@ def predict_fixture_picks(
         confidence_level = _confidence_level(result_probabilities, competitive)
         error_risk = _error_risk(result_probabilities, competitive)
         main_reasons, alert_flags = _context_reasons(competitive, dynamic_goal_inflation_reason)
+        knockout = bool(competitive["is_knockout_stage"])
+        home_penalty_probability = 1 / (1 + exp(-float(match.elo_diff) / 300))
+        advancement_probability_home = (
+            home_win_probability + draw_probability * home_penalty_probability
+            if knockout
+            else pd.NA
+        )
+        advancement_probability_away = (
+            away_win_probability + draw_probability * (1 - home_penalty_probability)
+            if knockout
+            else pd.NA
+        )
+        predicted_advancing_team = (
+            str(match.home_team)
+            if knockout and float(advancement_probability_home) >= float(advancement_probability_away)
+            else str(match.away_team) if knockout else ""
+        )
+        extra_time_probability = draw_probability if knockout else 0.0
+        penalty_shootout_probability = draw_probability * 0.45 if knockout else 0.0
+        expected_points_drop_vs_balanced = max(
+            0.0,
+            1.0 - (pick_expected_points / max(float(risk_picks["balanced"]["expected_points"]), 0.0001)),
+        )
+        strategic_override_allowed = expected_points_drop_vs_balanced <= (0.10 if confidence_level == "low" else 0.15)
+        strategic_override_reason = (
+            "expected-points drop within calibrated risk limit"
+            if strategic_override_allowed
+            else "expected-points drop too high for selected risk profile"
+        )
+        inflation_warning_flag = knockout and dynamic_goal_inflation > MAX_KNOCKOUT_GOAL_INFLATION
+        inflation_warning_reason = "High goal inflation in knockout stage" if inflation_warning_flag else ""
+        aggression_warning = confidence_level == "low" and sum(pick) >= 5
+        model_warnings = [inflation_warning_reason] if inflation_warning_reason else []
+        if aggression_warning:
+            model_warnings.append("Low-confidence pick has 5+ total goals")
+        if knockout and (
+            bool(competitive["is_last_group_match"])
+            or bool(competitive["home_goal_difference_pressure"])
+            or bool(competitive["away_goal_difference_pressure"])
+            or float(competitive["group_scenario_volatility"]) != 0.0
+        ):
+            model_warnings.append("Knockout stage should not use group pressure logic")
+        recommended_pick_explanation = (
+            f"{str(competitive['tournament_stage'])}: {dynamic_goal_inflation_reason}; "
+            f"risk={risk_profile}; 90min 1X2 {home_win_probability:.1%}/{draw_probability:.1%}/{away_win_probability:.1%}."
+        )
+        safer_alternative_reason = "Higher-probability or lower-variance profile"
+        aggressive_alternative_reason = "Higher-upside profile within stage-adjusted goal cap"
 
         rows.append(
             {
@@ -1248,6 +1642,11 @@ def predict_fixture_picks(
                 "home_team": match.home_team,
                 "away_team": match.away_team,
                 "group": str(competitive["group"]),
+                "tournament_stage": str(competitive["tournament_stage"]),
+                "is_group_stage": bool(competitive["is_group_stage"]),
+                "is_knockout_stage": bool(competitive["is_knockout_stage"]),
+                "is_extra_time_possible": bool(competitive["is_extra_time_possible"]),
+                "is_penalty_possible": bool(competitive["is_penalty_possible"]),
                 "model_home_expected_goals": model_home_expected_goals,
                 "model_away_expected_goals": model_away_expected_goals,
                 "context_home_expected_goals": context_home_expected_goals,
@@ -1268,7 +1667,10 @@ def predict_fixture_picks(
                 "away_expected_goals": strategy_away_expected_goals,
                 "goal_inflation": goal_inflation,
                 "dynamic_goal_inflation": dynamic_goal_inflation,
+                "stage_adjusted_goal_inflation": dynamic_goal_inflation,
                 "dynamic_goal_inflation_reason": dynamic_goal_inflation_reason,
+                "inflation_warning_flag": inflation_warning_flag,
+                "inflation_warning_reason": inflation_warning_reason,
                 "max_total_candidate_goals": max_total_candidate_goals,
                 "draw_probability_multiplier": effective_draw_probability_multiplier,
                 "is_last_group_match": bool(competitive["is_last_group_match"]),
@@ -1285,16 +1687,37 @@ def predict_fixture_picks(
                 "away_goal_difference_pressure": bool(competitive["away_goal_difference_pressure"]),
                 "match_pressure_score": float(competitive["match_pressure_score"]),
                 "group_scenario_volatility": float(competitive["group_scenario_volatility"]),
+                "home_must_advance": bool(competitive["home_must_advance"]),
+                "away_must_advance": bool(competitive["away_must_advance"]),
+                "knockout_match_importance": float(competitive["knockout_match_importance"]),
+                "extra_time_risk": extra_time_probability,
+                "penalty_risk": penalty_shootout_probability,
+                "knockout_draw_boost": float(competitive["knockout_draw_boost"]),
+                "favorite_caution_factor": float(competitive["favorite_caution_factor"]),
+                "underdog_low_block_factor": float(competitive["underdog_low_block_factor"]),
+                "late_game_opening_factor": float(competitive["late_game_opening_factor"]),
                 "home_win_probability": home_win_probability,
                 "draw_probability": draw_probability,
                 "away_win_probability": away_win_probability,
+                "predicted_90min_scoreline": f"{pick[0]}-{pick[1]}",
+                "predicted_advancing_team": predicted_advancing_team,
+                "advancement_probability_home": advancement_probability_home,
+                "advancement_probability_away": advancement_probability_away,
+                "extra_time_probability": extra_time_probability,
+                "penalty_shootout_probability": penalty_shootout_probability,
                 "market_home_win_probability": pd.NA,
                 "market_draw_probability": pd.NA,
                 "market_away_win_probability": pd.NA,
+                "market_90min_home_probability": pd.NA,
+                "market_90min_draw_probability": pd.NA,
+                "market_90min_away_probability": pd.NA,
+                "market_advance_home_probability": pd.NA,
+                "market_advance_away_probability": pd.NA,
                 "market_over_2_5_probability": pd.NA,
                 "market_under_2_5_probability": pd.NA,
                 "market_btts_yes_probability": pd.NA,
                 "market_btts_no_probability": pd.NA,
+                "market_btts_probability": pd.NA,
                 "home_market_edge": pd.NA,
                 "draw_market_edge": pd.NA,
                 "away_market_edge": pd.NA,
@@ -1310,15 +1733,28 @@ def predict_fixture_picks(
                 "aggressive_expected_points": float(risk_picks["aggressive"]["expected_points"]),
                 "desperation_scoreline": _scoreline_text(risk_picks["desperation"]["scoreline"]),
                 "desperation_expected_points": float(risk_picks["desperation"]["expected_points"]),
+                "aggressive_total_goal_cap": risk_picks["aggressive_total_goal_cap"],
+                "desperation_total_goal_cap": risk_picks["desperation_total_goal_cap"],
+                "risk_adjusted_candidate_scorelines": risk_picks["risk_adjusted_candidate_scorelines"],
                 "recommended_scoreline_by_risk": _scoreline_text(pick),
                 "estimated_pick_popularity": float(selected_pick["estimated_pick_popularity"]),
                 "differential_multiplier": float(selected_pick["differential_multiplier"]),
                 "upside_multiplier": float(selected_pick["upside_multiplier"]),
                 "strategic_pick_value": float(selected_pick["strategic_pick_value"]),
+                "expected_points_drop_vs_balanced": expected_points_drop_vs_balanced,
+                "strategic_override_allowed": strategic_override_allowed,
+                "strategic_override_reason": strategic_override_reason,
                 "confidence_level": confidence_level,
                 "error_risk": error_risk,
                 "main_reasons": main_reasons,
                 "alert_flags": alert_flags,
+                "recommended_pick_type": risk_profile,
+                "recommended_pick_explanation": recommended_pick_explanation,
+                "safer_alternative_scoreline": _scoreline_text(risk_picks["balanced"]["scoreline"]),
+                "safer_alternative_reason": safer_alternative_reason,
+                "aggressive_alternative_scoreline": _scoreline_text(risk_picks["aggressive"]["scoreline"]),
+                "aggressive_alternative_reason": aggressive_alternative_reason,
+                "model_warning_summary": " | ".join(model_warnings),
                 "recommended_home_score": pick[0],
                 "recommended_away_score": pick[1],
                 "recommended_scoreline": f"{pick[0]}-{pick[1]}",
@@ -1334,7 +1770,7 @@ def predict_fixture_picks(
             }
         )
 
-    return pd.DataFrame(rows)
+    return _apply_daily_scoreline_diversity(pd.DataFrame(rows))
 
 
 def train_final_model_and_predict_fixtures(

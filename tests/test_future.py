@@ -2,6 +2,7 @@ import pandas as pd
 from pytest import approx
 
 from worldcup_predictor.future import (
+    _apply_daily_scoreline_diversity,
     build_already_qualified_context_overrides,
     build_competitive_context,
     build_fixture_features,
@@ -10,6 +11,24 @@ from worldcup_predictor.future import (
     future_fixtures,
     predict_fixture_picks,
 )
+
+
+def _completed_group_stage() -> pd.DataFrame:
+    pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+    rows = []
+    for group in range(12):
+        for match_index, (home, away) in enumerate(pairs):
+            rows.append(
+                {
+                    "date": pd.Timestamp("2026-06-11") + pd.Timedelta(days=match_index),
+                    "home_team": f"T{group}_{home}",
+                    "away_team": f"T{group}_{away}",
+                    "home_score": 1,
+                    "away_score": 0,
+                    "tournament": "FIFA World Cup",
+                }
+            )
+    return pd.DataFrame(rows)
 
 
 class ConstantPredictor:
@@ -291,3 +310,110 @@ def test_predict_fixture_picks_uses_dynamic_goal_inflation_and_risk_profiles() -
     assert need_row.strategy_home_expected_goals == approx(1.45)
     assert safe_row.recommended_scoreline_by_risk == safe_row.recommended_scoreline
     assert safe_row.strategic_pick_value > 0
+
+
+def test_build_competitive_context_separates_knockout_from_group_logic() -> None:
+    completed = _completed_group_stage()
+    fixtures = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-29"]),
+            "home_team": ["T0_0"],
+            "away_team": ["T1_0"],
+            "home_score": [None],
+            "away_score": [None],
+            "tournament": ["FIFA World Cup"],
+        }
+    )
+
+    context = build_competitive_context(completed, fixtures)
+
+    row = context.iloc[0]
+    assert row.tournament_stage == "round_of_32"
+    assert bool(row.is_knockout_stage) is True
+    assert bool(row.is_last_group_match) is False
+    assert bool(row.home_goal_difference_pressure) is False
+    assert bool(row.away_goal_difference_pressure) is False
+    assert row.group_scenario_volatility == 0.0
+    assert bool(row.home_must_advance) is True
+    assert bool(row.away_must_advance) is True
+
+
+def test_predict_fixture_picks_caps_knockout_inflation_and_aggressive_goals() -> None:
+    fixture_features = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-29"]),
+            "home_team": ["Netherlands"],
+            "away_team": ["Morocco"],
+            "tournament": ["FIFA World Cup"],
+            "tournament_stage": ["round_of_32"],
+            "is_group_stage": [False],
+            "is_knockout_stage": [True],
+            "is_extra_time_possible": [True],
+            "is_penalty_possible": [True],
+            "neutral": [True],
+            "home_elo": [2016.0],
+            "away_elo": [1978.0],
+            "elo_diff": [38.0],
+        }
+    )
+    competitive_context = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-29"]),
+            "home_team": ["Netherlands"],
+            "away_team": ["Morocco"],
+            "tournament_stage": ["round_of_32"],
+            "is_group_stage": [False],
+            "is_knockout_stage": [True],
+            "is_extra_time_possible": [True],
+            "is_penalty_possible": [True],
+        }
+    )
+
+    predictions = predict_fixture_picks(
+        ConstantGoalModel(home_goals=1.42, away_goals=1.21),
+        fixture_features,
+        goal_inflation=1.4,
+        competitive_context=competitive_context,
+        risk_profile="aggressive",
+    )
+
+    row = predictions.iloc[0]
+    assert row.tournament_stage == "round_of_32"
+    assert row.dynamic_goal_inflation == approx(1.08)
+    assert row.dynamic_goal_inflation <= 1.25
+    assert row.aggressive_total_goal_cap == 4
+    assert row.aggressive_scoreline not in {"3-2", "2-3"}
+    assert row.recommended_home_score + row.recommended_away_score <= 4
+    assert row.predicted_advancing_team in {"Netherlands", "Morocco"}
+    assert row.extra_time_probability > 0
+
+
+def test_daily_scoreline_diversity_penalizes_third_repeat() -> None:
+    rows = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-06-29"] * 3),
+            "recommended_scoreline": ["3-2", "3-2", "3-2"],
+            "recommended_expected_points": [4.0, 3.8, 3.5],
+            "strategic_pick_value": [7.0, 6.5, 6.0],
+            "alert_flags": ["", "", ""],
+            "model_warning_summary": ["", "", ""],
+            "balanced_scoreline": ["2-1", "2-1", "2-1"],
+            "balanced_expected_points": [3.9, 3.7, 3.4],
+            "conservative_scoreline": ["2-0", "2-0", "2-0"],
+            "conservative_expected_points": [3.5, 3.3, 3.1],
+            "draw_alternative_scoreline": ["1-1", "1-1", "1-1"],
+            "draw_alternative_expected_points": [2.0, 2.0, 2.0],
+            "recommended_home_score": [3, 3, 3],
+            "recommended_away_score": [2, 2, 2],
+            "predicted_90min_scoreline": ["3-2", "3-2", "3-2"],
+            "recommended_pick_explanation": ["", "", ""],
+        }
+    )
+
+    diversified = _apply_daily_scoreline_diversity(rows)
+
+    third = diversified.sort_values("recommended_expected_points", ascending=False).iloc[2]
+    assert third.same_day_scoreline_count == 3
+    assert third.scoreline_diversity_penalty > 0
+    assert third.recommended_scoreline == "2-1"
+    assert "daily_scoreline_diversity_penalty" in third.alert_flags
