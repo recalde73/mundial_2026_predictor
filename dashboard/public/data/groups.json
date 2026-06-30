@@ -2,110 +2,83 @@
   {
     "team":"Argentina",
     "group":"Group 01",
-    "first_probability":0.37532,
-    "second_probability":0.51256,
-    "third_probability":0.04236,
-    "fourth_probability":0.06976,
-    "advance_probability":0.93024
+    "first_probability":0.37,
+    "second_probability":0.51488,
+    "third_probability":0.0346,
+    "fourth_probability":0.08052,
+    "advance_probability":0.91948
   },
   {
     "team":"France",
     "group":"Group 01",
-    "first_probability":0.60492,
-    "second_probability":0.2652,
-    "third_probability":0.0458,
-    "fourth_probability":0.08408,
-    "advance_probability":0.91592
+    "first_probability":0.61056,
+    "second_probability":0.25856,
+    "third_probability":0.0452,
+    "fourth_probability":0.08568,
+    "advance_probability":0.91432
   },
   {
     "team":"Mexico",
     "group":"Group 01",
-    "first_probability":0.0146,
-    "second_probability":0.12912,
-    "third_probability":0.36792,
-    "fourth_probability":0.48836,
-    "advance_probability":0.51164
-  },
-  {
-    "team":"Spain",
-    "group":"Group 01",
-    "first_probability":0.00148,
-    "second_probability":0.02848,
-    "third_probability":0.1848,
-    "fourth_probability":0.78524,
-    "advance_probability":0.21476
-  },
-  {
-    "team":"Brazil",
-    "group":"Group 01",
-    "first_probability":0.00184,
-    "second_probability":0.02852,
-    "third_probability":0.1552,
-    "fourth_probability":0.81444,
-    "advance_probability":0.18556
-  },
-  {
-    "team":"Netherlands",
-    "group":"Group 01",
-    "first_probability":0.00156,
-    "second_probability":0.02896,
-    "third_probability":0.141,
-    "fourth_probability":0.82848,
-    "advance_probability":0.17152
-  },
-  {
-    "team":"Switzerland",
-    "group":"Group 01",
-    "first_probability":0.00028,
-    "second_probability":0.00584,
-    "third_probability":0.04256,
-    "fourth_probability":0.95132,
-    "advance_probability":0.04868
+    "first_probability":0.01308,
+    "second_probability":0.12204,
+    "third_probability":0.34908,
+    "fourth_probability":0.5158,
+    "advance_probability":0.4842
   },
   {
     "team":"Morocco",
     "group":"Group 01",
-    "first_probability":0.0,
-    "second_probability":0.00108,
-    "third_probability":0.01464,
-    "fourth_probability":0.98428,
-    "advance_probability":0.01572
+    "first_probability":0.00424,
+    "second_probability":0.0556,
+    "third_probability":0.23212,
+    "fourth_probability":0.70804,
+    "advance_probability":0.29196
   },
   {
-    "team":"Germany",
+    "team":"Canada",
     "group":"Group 01",
-    "first_probability":0.0,
-    "second_probability":0.00012,
-    "third_probability":0.00316,
-    "fourth_probability":0.99672,
-    "advance_probability":0.00328
+    "first_probability":0.0008,
+    "second_probability":0.01812,
+    "third_probability":0.10816,
+    "fourth_probability":0.87292,
+    "advance_probability":0.12708
+  },
+  {
+    "team":"Spain",
+    "group":"Group 01",
+    "first_probability":0.00092,
+    "second_probability":0.01892,
+    "third_probability":0.10316,
+    "fourth_probability":0.877,
+    "advance_probability":0.123
+  },
+  {
+    "team":"Brazil",
+    "group":"Group 01",
+    "first_probability":0.00028,
+    "second_probability":0.0088,
+    "third_probability":0.10344,
+    "fourth_probability":0.88748,
+    "advance_probability":0.11252
+  },
+  {
+    "team":"Switzerland",
+    "group":"Group 01",
+    "first_probability":0.00012,
+    "second_probability":0.00308,
+    "third_probability":0.02388,
+    "fourth_probability":0.97292,
+    "advance_probability":0.02708
   },
   {
     "team":"United States",
     "group":"Group 01",
     "first_probability":0.0,
-    "second_probability":0.00012,
-    "third_probability":0.00244,
-    "fourth_probability":0.99744,
-    "advance_probability":0.00256
-  },
-  {
-    "team":"Norway",
-    "group":"Group 01",
-    "first_probability":0.0,
     "second_probability":0.0,
-    "third_probability":0.00008,
-    "fourth_probability":0.99992,
-    "advance_probability":0.00008
-  },
-  {
-    "team":"Ivory Coast",
-    "group":"Group 01",
-    "first_probability":0.0,
-    "second_probability":0.0,
-    "third_probability":0.00004,
-    "fourth_probability":0.99996,
-    "advance_probability":0.00004
+    "third_probability":0.00036,
+    "fourth_probability":0.99964,
+    "advance_probability":0.00036
   },
   {
     "team":"Algeria",
@@ -145,15 +118,6 @@
   },
   {
     "team":"Bosnia and Herzegovina",
-    "group":"Group 01",
-    "first_probability":0.0,
-    "second_probability":0.0,
-    "third_probability":0.0,
-    "fourth_probability":1.0,
-    "advance_probability":0.0
-  },
-  {
-    "team":"Canada",
     "group":"Group 01",
     "first_probability":0.0,
     "second_probability":0.0,
@@ -207,6 +171,15 @@
     "advance_probability":0.0
   },
   {
+    "team":"Germany",
+    "group":"Group 01",
+    "first_probability":0.0,
+    "second_probability":0.0,
+    "third_probability":0.0,
+    "fourth_probability":1.0,
+    "advance_probability":0.0
+  },
+  {
     "team":"Haiti",
     "group":"Group 01",
     "first_probability":0.0,
@@ -234,6 +207,15 @@
     "advance_probability":0.0
   },
   {
+    "team":"Ivory Coast",
+    "group":"Group 01",
+    "first_probability":0.0,
+    "second_probability":0.0,
+    "third_probability":0.0,
+    "fourth_probability":1.0,
+    "advance_probability":0.0
+  },
+  {
     "team":"Japan",
     "group":"Group 01",
     "first_probability":0.0,
@@ -252,7 +234,25 @@
     "advance_probability":0.0
   },
   {
+    "team":"Netherlands",
+    "group":"Group 01",
+    "first_probability":0.0,
+    "second_probability":0.0,
+    "third_probability":0.0,
+    "fourth_probability":1.0,
+    "advance_probability":0.0
+  },
+  {
     "team":"New Zealand",
+    "group":"Group 01",
+    "first_probability":0.0,
+    "second_probability":0.0,
+    "third_probability":0.0,
+    "fourth_probability":1.0,
+    "advance_probability":0.0
+  },
+  {
+    "team":"Norway",
     "group":"Group 01",
     "first_probability":0.0,
     "second_probability":0.0,
@@ -362,56 +362,56 @@
   {
     "team":"Colombia",
     "group":"Group 02",
-    "first_probability":0.3828,
-    "second_probability":0.48064,
-    "third_probability":0.12236,
-    "fourth_probability":0.0142,
-    "advance_probability":0.9858
+    "first_probability":0.38688,
+    "second_probability":0.47888,
+    "third_probability":0.12104,
+    "fourth_probability":0.0132,
+    "advance_probability":0.9868
   },
   {
     "team":"England",
     "group":"Group 02",
-    "first_probability":0.58344,
-    "second_probability":0.24324,
-    "third_probability":0.1542,
-    "fourth_probability":0.01912,
-    "advance_probability":0.98088
+    "first_probability":0.57896,
+    "second_probability":0.2472,
+    "third_probability":0.15424,
+    "fourth_probability":0.0196,
+    "advance_probability":0.9804
   },
   {
     "team":"Portugal",
     "group":"Group 02",
-    "first_probability":0.02528,
-    "second_probability":0.2048,
-    "third_probability":0.383,
-    "fourth_probability":0.38692,
-    "advance_probability":0.61308
+    "first_probability":0.02588,
+    "second_probability":0.204,
+    "third_probability":0.38272,
+    "fourth_probability":0.3874,
+    "advance_probability":0.6126
   },
   {
     "team":"Croatia",
     "group":"Group 02",
-    "first_probability":0.00824,
-    "second_probability":0.06168,
-    "third_probability":0.28812,
-    "fourth_probability":0.64196,
-    "advance_probability":0.35804
+    "first_probability":0.008,
+    "second_probability":0.06036,
+    "third_probability":0.2906,
+    "fourth_probability":0.64104,
+    "advance_probability":0.35896
   },
   {
     "team":"DR Congo",
     "group":"Group 02",
-    "first_probability":0.00024,
-    "second_probability":0.00672,
-    "third_probability":0.0344,
-    "fourth_probability":0.95864,
-    "advance_probability":0.04136
+    "first_probability":0.00028,
+    "second_probability":0.0064,
+    "third_probability":0.03436,
+    "fourth_probability":0.95896,
+    "advance_probability":0.04104
   },
   {
     "team":"Ghana",
     "group":"Group 02",
     "first_probability":0.0,
-    "second_probability":0.00292,
-    "third_probability":0.01792,
-    "fourth_probability":0.97916,
-    "advance_probability":0.02084
+    "second_probability":0.00316,
+    "third_probability":0.01704,
+    "fourth_probability":0.9798,
+    "advance_probability":0.0202
   },
   {
     "team":"Panama",
